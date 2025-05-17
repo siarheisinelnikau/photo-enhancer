@@ -1,0 +1,399 @@
+//! Bounded, deterministic 8-bit sRGB processing. No learned restoration.
+use anyhow::{Context, Result, bail, ensure};
+use image::{ColorType, DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, Rgba, RgbaImage};
+use serde::{Deserialize, Serialize};
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+pub const MAX_INPUT_PIXELS: u64 = 24_000_000;
+pub const MAX_OUTPUT_PIXELS: u64 = 32_000_000;
+pub const MEMORY_BUDGET: u64 = 512 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 128 * 1024 * 1024;
+pub const PREVIEW_EDGE: u32 = 1280;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Adjustments {
+    pub exposure: f32,
+    pub saturation: f32,
+    pub warmth: f32,
+    pub denoise: f32,
+    pub sharpen: f32,
+    pub scale: u32,
+}
+impl Default for Adjustments {
+    fn default() -> Self {
+        Self {
+            exposure: 0.0,
+            saturation: 1.0,
+            warmth: 0.0,
+            denoise: 0.0,
+            sharpen: 0.0,
+            scale: 1,
+        }
+    }
+}
+impl Adjustments {
+    pub fn validate(&self) -> Result<()> {
+        for (value, min, max) in [
+            (self.exposure, -3.0, 3.0),
+            (self.saturation, 0.0, 2.0),
+            (self.warmth, -1.0, 1.0),
+            (self.denoise, 0.0, 1.0),
+            (self.sharpen, 0.0, 2.0),
+        ] {
+            ensure!(
+                value.is_finite() && (min..=max).contains(&value),
+                "Adjustment out of range"
+            );
+        }
+        ensure!((1..=4).contains(&self.scale), "Scale must be 1, 2, 3 or 4");
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OutputFormat {
+    #[default]
+    Png,
+    Jpeg,
+}
+impl OutputFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpg",
+        }
+    }
+}
+
+pub fn cancelled(cancel: &AtomicBool) -> Result<()> {
+    ensure!(!cancel.load(Ordering::Relaxed), "Cancelled");
+    Ok(())
+}
+
+pub fn dimensions(width: u32, height: u32, scale: u32) -> Result<(u32, u32)> {
+    ensure!(
+        width > 0 && height > 0 && (1..=4).contains(&scale),
+        "Invalid dimensions or scale"
+    );
+    let input = u64::from(width) * u64::from(height);
+    ensure!(
+        input <= MAX_INPUT_PIXELS,
+        "Input exceeds the 24 megapixel limit"
+    );
+    let output = input * u64::from(scale).pow(2);
+    ensure!(
+        output <= MAX_OUTPUT_PIXELS,
+        "Output exceeds 32 megapixels; reduce scale"
+    );
+    // Includes codec buffers, orientation copies and retained preview textures. This
+    // is a conservative allocation plan, not a process-wide allocator guarantee.
+    ensure!(
+        20 * input + 8 * output + 32 * 1024 * 1024 <= MEMORY_BUDGET,
+        "Image exceeds the 512 MiB processing allocation plan; use a smaller image"
+    );
+    Ok((
+        width.checked_mul(scale).context("Width overflow")?,
+        height.checked_mul(scale).context("Height overflow")?,
+    ))
+}
+
+pub fn load(path: &Path, cancel: &AtomicBool) -> Result<RgbaImage> {
+    cancelled(cancel)?;
+    let file = File::open(path).context("Cannot open image")?;
+    ensure!(
+        file.metadata()?.len() <= MAX_FILE_BYTES,
+        "Input file exceeds 128 MiB"
+    );
+    let mut reader = image::ImageReader::new(BufReader::new(file)).with_guessed_format()?;
+    ensure!(
+        matches!(reader.format(), Some(ImageFormat::Png | ImageFormat::Jpeg)),
+        "Only PNG and JPEG are supported in this version"
+    );
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(192 * 1024 * 1024);
+    limits.max_image_width = Some(24_000);
+    limits.max_image_height = Some(24_000);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder()?;
+    let (w, h) = decoder.dimensions();
+    dimensions(w, h, 1)?;
+    ensure!(
+        matches!(
+            decoder.color_type(),
+            ColorType::L8 | ColorType::La8 | ColorType::Rgb8 | ColorType::Rgba8
+        ),
+        "Only 8-bit images are supported; convert high-bit-depth images to sRGB first"
+    );
+    ensure!(
+        decoder.icc_profile()?.is_none(),
+        "ICC-tagged input is not supported yet. Convert a copy to untagged sRGB first; the original has not been changed."
+    );
+    let orientation = decoder.orientation()?;
+    let mut image = DynamicImage::from_decoder(decoder)?;
+    cancelled(cancel)?;
+    image.apply_orientation(orientation);
+    Ok(image.into_rgba8())
+}
+
+pub fn thumbnail(image: &RgbaImage) -> RgbaImage {
+    if image.width().max(image.height()) <= PREVIEW_EDGE {
+        return image.clone();
+    }
+    let ratio = PREVIEW_EDGE as f32 / image.width().max(image.height()) as f32;
+    // Premultiplied interpolation avoids dark/colored fringes at transparent edges.
+    resize(
+        image,
+        (image.width() as f32 * ratio).round().max(1.0) as u32,
+        (image.height() as f32 * ratio).round().max(1.0) as u32,
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .expect("valid thumbnail")
+}
+
+fn linear(v: u8) -> f32 {
+    let v = v as f32 / 255.0;
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+fn encoded(v: f32) -> u8 {
+    let v = v.clamp(0.0, 1.0);
+    let s = if v <= 0.0031308 {
+        v * 12.92
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round() as u8
+}
+
+pub fn enhance(
+    src: &RgbaImage,
+    settings: &Adjustments,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(f32),
+) -> Result<RgbaImage> {
+    settings.validate()?;
+    let (ow, oh) = dimensions(src.width(), src.height(), settings.scale)?;
+    cancelled(cancel)?;
+    let (w, h) = src.dimensions();
+    let mut lut = [0.0f32; 256];
+    for (i, v) in lut.iter_mut().enumerate() {
+        *v = linear(i as u8);
+    }
+    let exposure = 2.0f32.powf(settings.exposure);
+    let gains = [
+        1.0 + settings.warmth * 0.18,
+        1.0,
+        1.0 - settings.warmth * 0.18,
+    ];
+    let mut filtered = RgbaImage::new(w, h);
+    // Fixed 3x3 support and 64-row tiles: no image-sized floating point scratch.
+    for top in (0..h).step_by(64) {
+        for y in top..(top + 64).min(h) {
+            cancelled(cancel)?;
+            for x in 0..w {
+                let center = src.get_pixel(x, y);
+                let mut rgb = [0.0; 3];
+                for c in 0..3 {
+                    rgb[c] = lut[center[c] as usize];
+                }
+                if settings.denoise > 0.0 && center[3] > 0 {
+                    let mut sum = [0.0; 3];
+                    let mut total = 0.0;
+                    for ny in y.saturating_sub(1)..=(y + 1).min(h - 1) {
+                        for nx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
+                            let p = src.get_pixel(nx, ny);
+                            let distance: f32 =
+                                (0..3).map(|c| (lut[p[c] as usize] - rgb[c]).powi(2)).sum();
+                            let weight = (p[3] as f32 / 255.0) / (1.0 + distance * 64.0);
+                            for c in 0..3 {
+                                sum[c] += lut[p[c] as usize] * weight;
+                            }
+                            total += weight;
+                        }
+                    }
+                    if total > 0.0 {
+                        for c in 0..3 {
+                            rgb[c] += settings.denoise * (sum[c] / total - rgb[c]);
+                        }
+                    }
+                }
+                let luma = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+                let mut out = *center;
+                for c in 0..3 {
+                    out[c] = encoded(
+                        (luma + (rgb[c] - luma) * settings.saturation) * exposure * gains[c],
+                    );
+                }
+                // Keep hidden RGB as well as alpha unchanged for an identity transform.
+                filtered.put_pixel(x, y, out);
+            }
+            progress(0.4 * (y + 1) as f32 / h as f32);
+        }
+    }
+    if settings.sharpen > 0.0 {
+        let mut sharp = RgbaImage::new(w, h);
+        for y in 0..h {
+            cancelled(cancel)?;
+            for x in 0..w {
+                let p = filtered.get_pixel(x, y);
+                let mut out = *p;
+                if p[3] > 0 {
+                    let mut sum = [0.0; 3];
+                    let mut total = 0.0;
+                    for ny in y.saturating_sub(1)..=(y + 1).min(h - 1) {
+                        for nx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
+                            let q = filtered.get_pixel(nx, ny);
+                            let weight = q[3] as f32;
+                            for c in 0..3 {
+                                sum[c] += lut[q[c] as usize] * weight;
+                            }
+                            total += weight;
+                        }
+                    }
+                    for c in 0..3 {
+                        let v = lut[p[c] as usize];
+                        out[c] = encoded(v + settings.sharpen * (v - sum[c] / total));
+                    }
+                }
+                sharp.put_pixel(x, y, out);
+            }
+            progress(0.4 + 0.3 * (y + 1) as f32 / h as f32);
+        }
+        filtered = sharp;
+    }
+    if settings.scale > 1 {
+        resize(&filtered, ow, oh, cancel, &mut |p| progress(0.7 + 0.3 * p))
+    } else {
+        progress(1.0);
+        Ok(filtered)
+    }
+}
+
+fn resize(
+    src: &RgbaImage,
+    w: u32,
+    h: u32,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(f32),
+) -> Result<RgbaImage> {
+    let mut dst = RgbaImage::new(w, h);
+    let mut lut = [0.0; 256];
+    for (i, v) in lut.iter_mut().enumerate() {
+        *v = linear(i as u8);
+    }
+    for y in 0..h {
+        cancelled(cancel)?;
+        let sy = ((y as f32 + 0.5) * src.height() as f32 / h as f32 - 0.5)
+            .clamp(0.0, (src.height() - 1) as f32);
+        let y0 = sy.floor() as u32;
+        let fy = sy - y0 as f32;
+        for x in 0..w {
+            let sx = ((x as f32 + 0.5) * src.width() as f32 / w as f32 - 0.5)
+                .clamp(0.0, (src.width() - 1) as f32);
+            let x0 = sx.floor() as u32;
+            let fx = sx - x0 as f32;
+            let samples = [
+                (x0, y0, (1.0 - fx) * (1.0 - fy)),
+                ((x0 + 1).min(src.width() - 1), y0, fx * (1.0 - fy)),
+                (x0, (y0 + 1).min(src.height() - 1), (1.0 - fx) * fy),
+                (
+                    (x0 + 1).min(src.width() - 1),
+                    (y0 + 1).min(src.height() - 1),
+                    fx * fy,
+                ),
+            ];
+            let mut rgb = [0.0; 3];
+            let mut alpha = 0.0;
+            for (px, py, weight) in samples {
+                let p = src.get_pixel(px, py);
+                let a = p[3] as f32 / 255.0 * weight;
+                alpha += a;
+                for c in 0..3 {
+                    rgb[c] += lut[p[c] as usize] * a;
+                }
+            }
+            let mut p = Rgba([0, 0, 0, (alpha * 255.0).round() as u8]);
+            if alpha > 0.0 {
+                for c in 0..3 {
+                    p[c] = encoded(rgb[c] / alpha);
+                }
+            }
+            dst.put_pixel(x, y, p);
+        }
+        progress((y + 1) as f32 / h as f32);
+    }
+    Ok(dst)
+}
+
+/// Atomic no-clobber publication on the destination filesystem. Never overwrites.
+pub fn export(
+    image: &RgbaImage,
+    path: &Path,
+    format: OutputFormat,
+    quality: u8,
+    cancel: &AtomicBool,
+) -> Result<()> {
+    cancelled(cancel)?;
+    ensure!(
+        !path.exists(),
+        "Destination already exists; choose a new file name"
+    );
+    if format == OutputFormat::Jpeg && image.pixels().any(|p| p[3] != 255) {
+        bail!("JPEG cannot preserve transparency. Choose PNG for this image.");
+    }
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(parent)
+        .context("Cannot create output in destination folder")?;
+    {
+        let mut writer = BufWriter::new(temp.as_file_mut());
+        match format {
+            OutputFormat::Png => image::codecs::png::PngEncoder::new(&mut writer).write_image(
+                image.as_raw(),
+                image.width(),
+                image.height(),
+                image::ExtendedColorType::Rgba8,
+            )?,
+            OutputFormat::Jpeg => {
+                let rgb = DynamicImage::ImageRgba8(image.clone()).into_rgb8();
+                image::codecs::jpeg::JpegEncoder::new_with_quality(
+                    &mut writer,
+                    quality.clamp(1, 100),
+                )
+                .encode(
+                    rgb.as_raw(),
+                    image.width(),
+                    image.height(),
+                    image::ExtendedColorType::Rgb8,
+                )?;
+            }
+        }
+        writer.flush()?;
+    }
+    temp.as_file().sync_all()?;
+    cancelled(cancel)?;
+    temp.persist_noclobber(path)
+        .map_err(|e| e.error)
+        .context("Cannot publish output (existing files are protected)")?;
+    Ok(())
+}
+
+pub fn output_path(input: &Path, folder: &Path, format: OutputFormat) -> Result<PathBuf> {
+    let stem = input.file_stem().context("Input has no file name")?;
+    let mut name = stem.to_os_string();
+    name.push("-enhanced.");
+    name.push(format.extension());
+    Ok(folder.join(name))
+}

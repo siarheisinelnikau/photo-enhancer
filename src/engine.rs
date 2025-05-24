@@ -1,10 +1,10 @@
 //! Bounded, deterministic 8-bit sRGB processing. No learned restoration.
 use anyhow::{Context, Result, bail, ensure};
-use image::{ColorType, DynamicImage, ImageDecoder, ImageEncoder, ImageFormat, Rgba, RgbaImage};
+use image::{ColorType, DynamicImage, ImageDecoder, ImageFormat, Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Write},
+    io::{BufReader, BufWriter, Read, Seek, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -105,11 +105,65 @@ pub fn dimensions(width: u32, height: u32, scale: u32) -> Result<(u32, u32)> {
 
 pub fn load(path: &Path, cancel: &AtomicBool) -> Result<RgbaImage> {
     cancelled(cancel)?;
-    let file = File::open(path).context("Cannot open image")?;
+    let mut file = File::open(path).context("Cannot open image")?;
     ensure!(
         file.metadata()?.len() <= MAX_FILE_BYTES,
         "Input file exceeds 128 MiB"
     );
+    let mut signature = [0; 8];
+    file.read_exact(&mut signature).context("Truncated image")?;
+    file.rewind()?;
+    if signature == [137, 80, 78, 71, 13, 10, 26, 10] {
+        // The generic image decoder does not apply gAMA/cHRM/cICP. Refuse
+        // unsupported declarations instead of silently changing the color.
+        let decoder = png::Decoder::new_with_limits(
+            BufReader::new(&mut file),
+            png::Limits {
+                bytes: 4 * 1024 * 1024,
+            },
+        );
+        let reader = decoder.read_info()?;
+        let info = reader.info();
+        ensure!(
+            info.animation_control.is_none(),
+            "Animated PNG is unsupported; export a still image first"
+        );
+        if let Some(c) = info.coding_independent_code_points {
+            ensure!(
+                c.color_primaries == 1
+                    && c.transfer_function == 13
+                    && c.matrix_coefficients == 0
+                    && c.is_video_full_range_image,
+                "PNG color space is not sRGB; convert a copy to sRGB first"
+            );
+        }
+        ensure!(
+            info.mastering_display_color_volume.is_none() && info.content_light_level.is_none(),
+            "HDR PNG is unsupported"
+        );
+        if info.srgb.is_none() {
+            if let Some(gamma) = info.gama_chunk {
+                ensure!(
+                    (45454..=45456).contains(&gamma.into_scaled()),
+                    "Non-sRGB PNG gamma is unsupported"
+                );
+            }
+            if let Some(chroma) = info.chrm_chunk {
+                ensure!(
+                    chroma
+                        == png::SourceChromaticities::new(
+                            (0.3127, 0.3290),
+                            (0.64, 0.33),
+                            (0.30, 0.60),
+                            (0.15, 0.06)
+                        ),
+                    "Non-sRGB PNG primaries are unsupported"
+                );
+            }
+        }
+        drop(reader);
+        file.rewind()?;
+    }
     let mut reader = image::ImageReader::new(BufReader::new(file)).with_guessed_format()?;
     ensure!(
         matches!(reader.format(), Some(ImageFormat::Png | ImageFormat::Jpeg)),
@@ -360,12 +414,15 @@ pub fn export(
     {
         let mut writer = BufWriter::new(temp.as_file_mut());
         match format {
-            OutputFormat::Png => image::codecs::png::PngEncoder::new(&mut writer).write_image(
-                image.as_raw(),
-                image.width(),
-                image.height(),
-                image::ExtendedColorType::Rgba8,
-            )?,
+            OutputFormat::Png => {
+                let mut encoder = png::Encoder::new(&mut writer, image.width(), image.height());
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
+                let mut png = encoder.write_header()?;
+                png.write_image_data(image.as_raw())?;
+                png.finish()?;
+            }
             OutputFormat::Jpeg => {
                 let rgb = DynamicImage::ImageRgba8(image.clone()).into_rgb8();
                 image::codecs::jpeg::JpegEncoder::new_with_quality(

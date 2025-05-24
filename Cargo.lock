@@ -2112,6 +2112,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "image",
+ "png",
  "rfd",
  "self-replace",
  "semver",
@@ -2120,6 +2121,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "ureq",
+ "winit",
 ]
 
 [[package]]

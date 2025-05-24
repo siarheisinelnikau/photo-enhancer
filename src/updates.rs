@@ -34,6 +34,7 @@ pub struct Release {
 #[derive(Clone, Debug)]
 pub struct Available {
     pub version: Version,
+    pub tag: String,
     pub asset: Asset,
 }
 
@@ -68,7 +69,7 @@ pub fn select_release(release: Release, installed: &str) -> Result<Option<Availa
         asset.size > 1024 && asset.size <= MAX_DOWNLOAD,
         "Unexpected update size"
     );
-    Ok(Some(Available { version, asset }))
+    Ok(Some(Available { version, tag: release.tag_name, asset }))
 }
 
 fn agent() -> ureq::Agent {
@@ -134,7 +135,7 @@ fn install(update: &Available, cancel: &AtomicBool, progress: &AtomicU32) -> Res
     let expected = checksum(&update.asset)?;
     // Revalidate deserialized metadata, including the URL, immediately before downloading.
     let release = Release {
-        tag_name: format!("v{}", update.version),
+        tag_name: update.tag.clone(),
         draft: false,
         prerelease: false,
         assets: vec![update.asset.clone()],

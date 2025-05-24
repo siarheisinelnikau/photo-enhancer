@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+mod host;
 
 use eframe::egui::{self, Color32, RichText, Vec2};
 use photo_enhancer::{
@@ -24,11 +25,16 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
-    eframe::run_native(
+    let event_loop =
+        winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    let app = eframe::create_native(
         "PhotoEnhancer",
         options,
         Box::new(|cc| Ok(Box::new(PhotoEnhancer::new(cc)))),
-    )
+        &event_loop,
+    );
+    event_loop.run_app(&mut host::ReactiveHost(app))?;
+    Ok(())
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -266,9 +272,12 @@ impl PhotoEnhancer {
                 }
                 worker::Event::Exported(path) => {
                     self.message = format!("Saved {}", path.display());
-                    if self.batch_running {
+                    if self.batch_running && !self.worker.cancel.load(Ordering::Relaxed) {
                         self.queue[self.batch_index].state = "Saved".into();
                         continue_batch = true;
+                    } else if self.batch_running {
+                        self.queue[self.batch_index].state = "Saved; batch stopped".into();
+                        self.batch_running = false;
                     }
                 }
                 worker::Event::Failed(error) => {
@@ -479,29 +488,29 @@ impl PhotoEnhancer {
         if self.compare != Compare::After || self.after.is_none() {
             painter.image(before.id(), image_rect, uv, Color32::WHITE);
         }
-        if self.compare != Compare::Before {
-            if let Some(after) = &self.after {
-                let clip = if self.compare == Compare::Split {
-                    egui::Rect::from_min_max(
-                        egui::pos2(rect.left() + rect.width() * self.split, rect.top()),
-                        rect.max,
-                    )
-                } else {
-                    rect
-                };
-                painter.with_clip_rect(clip.intersect(rect)).image(
-                    after.id(),
-                    image_rect,
-                    uv,
-                    Color32::WHITE,
+        if self.compare != Compare::Before
+            && let Some(after) = &self.after
+        {
+            let clip = if self.compare == Compare::Split {
+                egui::Rect::from_min_max(
+                    egui::pos2(rect.left() + rect.width() * self.split, rect.top()),
+                    rect.max,
+                )
+            } else {
+                rect
+            };
+            painter.with_clip_rect(clip.intersect(rect)).image(
+                after.id(),
+                image_rect,
+                uv,
+                Color32::WHITE,
+            );
+            if self.compare == Compare::Split {
+                let x = rect.left() + rect.width() * self.split;
+                painter.line_segment(
+                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                    (1.5, Color32::from_rgb(110, 207, 192)),
                 );
-                if self.compare == Compare::Split {
-                    let x = rect.left() + rect.width() * self.split;
-                    painter.line_segment(
-                        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                        (1.5, Color32::from_rgb(110, 207, 192)),
-                    );
-                }
             }
         }
     }
@@ -557,8 +566,8 @@ impl PhotoEnhancer {
             ui.heading("PhotoEnhancer");ui.label(format!("Installed version {} · Windows x64 portable",env!("CARGO_PKG_VERSION")));
             ui.hyperlink_to("Canonical repository",updates::REPOSITORY);
             ui.separator();
-            if ui.checkbox(&mut self.preferences.startup_checks,"Check for updates on startup").changed() {
-                if let Some(storage)=frame.storage_mut() {eframe::set_value(storage,"preferences",&self.preferences);storage.flush();}
+            if ui.checkbox(&mut self.preferences.startup_checks,"Check for updates on startup").changed() && let Some(storage)=frame.storage_mut() {
+                eframe::set_value(storage,"preferences",&self.preferences);storage.flush();
             }
             ui.small("Startup checks contact GitHub only. Images and file paths are never uploaded.");
             if ui.add_enabled(!self.update_busy && !self.installed,egui::Button::new("Check for updates")).clicked() {self.check_updates();}
@@ -566,8 +575,8 @@ impl PhotoEnhancer {
             if let Some(update)=self.available.clone() {
                 ui.label(format!("Available: {}",update.version));
                 if let Err(error)=updates::checksum(&update.asset) {ui.colored_label(Color32::YELLOW,error.to_string());}
-                if ui.add_enabled(!self.update_busy && !self.busy && self.dialog.is_none() && !self.installed && updates::checksum(&update.asset).is_ok(),egui::Button::new("Download and install")).clicked() {
-                    if self.updater.submit(updates::Command::Install(update)).is_ok() {self.update_busy=true;self.installing=true;self.update_status="Downloading and verifying update…".into();}
+                if ui.add_enabled(!self.update_busy && !self.busy && self.dialog.is_none() && !self.installed && updates::checksum(&update.asset).is_ok(),egui::Button::new("Download and install")).clicked() && self.updater.submit(updates::Command::Install(update)).is_ok() {
+                    self.update_busy=true;self.installing=true;self.update_status="Downloading and verifying update…".into();
                 }
             }
             if self.installing {

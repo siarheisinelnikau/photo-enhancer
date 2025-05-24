@@ -166,3 +166,74 @@ fn exposure_increases_linear_luminance_without_changing_alpha() {
     assert!((110..=115).contains(&out.get_pixel(0, 0)[0]));
     assert_eq!(out.get_pixel(0, 0)[3], 123);
 }
+
+#[test]
+fn png_color_declarations_and_high_depth_are_not_silently_discarded() {
+    let folder = fixtures();
+    let path = folder.path().join("linear.png");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut encoder = png::Encoder::new(file, 1, 1);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_source_gamma(png::ScaledFloat::new(1.0));
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&[80, 80, 80])
+        .unwrap();
+    assert!(
+        load(&path, &active())
+            .unwrap_err()
+            .to_string()
+            .contains("gamma")
+    );
+    let path = folder.path().join("high-depth.png");
+    image::ImageBuffer::<image::Rgb<u16>, _>::from_pixel(1, 1, image::Rgb([65535, 12345, 0]))
+        .save(&path)
+        .unwrap();
+    assert!(
+        load(&path, &active())
+            .unwrap_err()
+            .to_string()
+            .contains("8-bit")
+    );
+}
+
+#[test]
+fn cancellation_during_processing_never_returns_a_partial_result() {
+    let image = RgbaImage::from_pixel(20, 20, Rgba([100, 90, 80, 255]));
+    let stop = active();
+    let result = enhance(&image, &Adjustments::default(), &stop, &mut |p| {
+        if p > 0.1 {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    });
+    assert!(result.is_err());
+}
+
+#[test]
+fn concurrent_exports_cannot_clobber_each_other() {
+    let folder = fixtures();
+    let path = folder.path().join("race.png");
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let jobs: Vec<_> = [12, 240]
+        .into_iter()
+        .map(|v| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let image = RgbaImage::from_pixel(3, 3, Rgba([v, v, v, 255]));
+                barrier.wait();
+                export(&image, &path, OutputFormat::Png, 95, &active()).is_ok()
+            })
+        })
+        .collect();
+    assert_eq!(
+        jobs.into_iter()
+            .filter_map(|t| t.join().unwrap().then_some(()))
+            .count(),
+        1
+    );
+    let value = load(&path, &active()).unwrap().get_pixel(0, 0)[0];
+    assert!(value == 12 || value == 240);
+}

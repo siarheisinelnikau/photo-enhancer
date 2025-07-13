@@ -4,7 +4,7 @@ use image::{ColorType, DynamicImage, ImageDecoder, ImageFormat, Rgba, RgbaImage}
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Read, Seek, Write},
+    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -163,6 +163,9 @@ pub fn load(path: &Path, cancel: &AtomicBool) -> Result<RgbaImage> {
         }
         drop(reader);
         file.rewind()?;
+    } else if signature[..2] == [0xff, 0xd8] {
+        validate_jpeg_header(&mut BufReader::new(&mut file), cancel)?;
+        file.rewind()?;
     }
     let mut reader = image::ImageReader::new(BufReader::new(file)).with_guessed_format()?;
     ensure!(
@@ -195,9 +198,51 @@ pub fn load(path: &Path, cancel: &AtomicBool) -> Result<RgbaImage> {
     Ok(image.into_rgba8())
 }
 
-pub fn thumbnail(image: &RgbaImage) -> RgbaImage {
+fn validate_jpeg_header(reader: &mut (impl Read + Seek), cancel: &AtomicBool) -> Result<()> {
+    reader.seek(SeekFrom::Start(2))?;
+    for _ in 0..4096 {
+        cancelled(cancel)?;
+        let mut byte = [0];
+        reader.read_exact(&mut byte)?;
+        ensure!(byte[0] == 0xff, "Malformed JPEG marker");
+        for _ in 0..4096 {
+            reader.read_exact(&mut byte)?;
+            if byte[0] != 0xff {
+                break;
+            }
+        }
+        let marker = byte[0];
+        ensure!(
+            !matches!(marker, 0xda | 0xd9),
+            "JPEG has no supported frame header"
+        );
+        if matches!(marker, 0xd0..=0xd8 | 0x01) {
+            continue;
+        }
+        let mut length = [0; 2];
+        reader.read_exact(&mut length)?;
+        let length = u16::from_be_bytes(length);
+        ensure!(length >= 2, "Malformed JPEG segment length");
+        if matches!(marker,0xc0..=0xc3|0xc5..=0xc7|0xc9..=0xcb|0xcd..=0xcf) {
+            ensure!(length >= 8, "Truncated JPEG frame header");
+            let mut frame = [0; 6];
+            reader.read_exact(&mut frame)?;
+            ensure!(
+                matches!(frame[5], 1 | 3),
+                "CMYK/YCCK JPEG is unsupported; convert a copy to sRGB first"
+            );
+            ensure!(frame[0] == 8, "Only 8-bit JPEG is supported");
+            return Ok(());
+        }
+        reader.seek(SeekFrom::Current(i64::from(length) - 2))?;
+    }
+    bail!("JPEG header exceeds the bounded metadata scan")
+}
+
+pub fn thumbnail(image: &RgbaImage, cancel: &AtomicBool) -> Result<RgbaImage> {
+    cancelled(cancel)?;
     if image.width().max(image.height()) <= PREVIEW_EDGE {
-        return image.clone();
+        return Ok(image.clone());
     }
     let ratio = PREVIEW_EDGE as f32 / image.width().max(image.height()) as f32;
     // Premultiplied interpolation avoids dark/colored fringes at transparent edges.
@@ -205,10 +250,9 @@ pub fn thumbnail(image: &RgbaImage) -> RgbaImage {
         image,
         (image.width() as f32 * ratio).round().max(1.0) as u32,
         (image.height() as f32 * ratio).round().max(1.0) as u32,
-        &AtomicBool::new(false),
+        cancel,
         &mut |_| {},
     )
-    .expect("valid thumbnail")
 }
 
 fn linear(v: u8) -> f32 {
@@ -424,7 +468,10 @@ pub fn export(
                 png.finish()?;
             }
             OutputFormat::Jpeg => {
-                let rgb = DynamicImage::ImageRgba8(image.clone()).into_rgb8();
+                let rgb = image::RgbImage::from_fn(image.width(), image.height(), |x, y| {
+                    let pixel = image.get_pixel(x, y);
+                    image::Rgb([pixel[0], pixel[1], pixel[2]])
+                });
                 image::codecs::jpeg::JpegEncoder::new_with_quality(
                     &mut writer,
                     quality.clamp(1, 100),

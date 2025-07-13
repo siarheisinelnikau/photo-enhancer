@@ -60,7 +60,7 @@ impl Worker {
                                 loaded = None;
                                 let image = engine::load(&path, &stop)?;
                                 let size = image.dimensions();
-                                let before = engine::thumbnail(&image);
+                                let before = engine::thumbnail(&image, &stop)?;
                                 engine::cancelled(&stop)?;
                                 loaded = Some((path.clone(), image));
                                 Ok(Event::Opened { path, size, before })
@@ -78,7 +78,7 @@ impl Worker {
                                     .as_ref()
                                     .ok_or_else(|| anyhow::anyhow!("Open an image first"))?;
                                 engine::dimensions(image.width(), image.height(), settings.scale)?;
-                                let thumb = engine::thumbnail(image);
+                                let thumb = engine::thumbnail(image, &stop)?;
                                 // Preview is a screen-size approximation, not a full resolution cache.
                                 settings.scale = 1;
                                 let image = engine::enhance(&thumb, &settings, &stop, &mut |p| {

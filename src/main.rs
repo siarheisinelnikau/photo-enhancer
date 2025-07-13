@@ -4,6 +4,7 @@ mod host;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use photo_enhancer::{
     engine::{self, Adjustments, OutputFormat},
+    inference::{Capability, LocalEnhancementBackend, UnavailableBackend},
     updates,
     worker::{self, Worker},
 };
@@ -588,9 +589,18 @@ impl PhotoEnhancer {
                 match result {Ok(_)=>ctx.send_viewport_cmd(egui::ViewportCommand::Close),Err(e)=>self.update_status=format!("Cannot restart: {e}. Close and reopen the application.")}
             }
             ui.separator();ui.strong("Local model capability");
-            ui.label("Learned restoration: unavailable in v0.1.0. No inference runtime or model is bundled.");
+            if let Capability::Unavailable {reason}=UnavailableBackend.capability() {ui.label(reason);}
             ui.small("An adapter boundary is included for future verified, user-installed models. No model downloads or model setup actions are enabled in this build.");
             ui.separator();ui.label("Supported input: 8-bit, untagged sRGB PNG and JPEG. ICC profiles are rejected. Export removes metadata, including GPS and orientation after applying it.");
+            ui.separator();
+            egui::CollapsingHeader::new("Licenses & notices").show(ui,|ui| {
+                ui.label("PhotoEnhancer © 2026 contributors · MIT License");
+                static LINES:std::sync::OnceLock<Vec<&'static str>>=std::sync::OnceLock::new();
+                let lines=LINES.get_or_init(||include_str!("../docs/THIRD_PARTY_NOTICES.txt").lines().collect());
+                egui::ScrollArea::both().max_height(180.0).show_rows(ui,14.0,lines.len(),|ui,rows| {
+                    for row in rows {ui.add(egui::Label::new(RichText::new(lines[row]).monospace().size(11.0)).wrap_mode(egui::TextWrapMode::Extend));}
+                });
+            });
         });
         self.settings_open = open;
     }

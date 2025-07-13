@@ -37,6 +37,7 @@ fn cancel_stops_processing_and_export() {
     let image = RgbaImage::new(4, 4);
     let stop = AtomicBool::new(true);
     assert!(enhance(&image, &Adjustments::default(), &stop, &mut |_| {}).is_err());
+    assert!(thumbnail(&image, &stop).is_err());
     let folder = fixtures();
     let path = folder.path().join("output.png");
     assert!(export(&image, &path, OutputFormat::Png, 95, &stop).is_err());
@@ -236,4 +237,21 @@ fn concurrent_exports_cannot_clobber_each_other() {
     );
     let value = load(&path, &active()).unwrap().get_pixel(0, 0)[0];
     assert!(value == 12 || value == 240);
+}
+
+#[test]
+fn cmyk_jpeg_is_rejected_before_implicit_color_conversion() {
+    let folder = fixtures();
+    let path = folder.path().join("cmyk.jpg");
+    let header = [
+        0xff, 0xd8, 0xff, 0xc0, 0, 20, 8, 0, 1, 0, 1, 4, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 4,
+        0x11, 0, 0xff, 0xd9,
+    ];
+    std::fs::write(&path, header).unwrap();
+    assert!(
+        load(&path, &active())
+            .unwrap_err()
+            .to_string()
+            .contains("CMYK")
+    );
 }

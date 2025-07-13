@@ -10,3 +10,5 @@
 /.local/
 /.test-output/
 *.partial
+__pycache__/
+*.pyc

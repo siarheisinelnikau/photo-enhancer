@@ -69,7 +69,11 @@ pub fn select_release(release: Release, installed: &str) -> Result<Option<Availa
         asset.size > 1024 && asset.size <= MAX_DOWNLOAD,
         "Unexpected update size"
     );
-    Ok(Some(Available { version, tag: release.tag_name, asset }))
+    Ok(Some(Available {
+        version,
+        tag: release.tag_name,
+        asset,
+    }))
 }
 
 fn agent() -> ureq::Agent {
@@ -279,6 +283,11 @@ mod tests {
         let mut r = release("0.2.0");
         r.draft = true;
         assert!(select_release(r, "0.1.0").is_err());
+        let mut r = release("0.2.0");
+        r.tag_name = "0.2.0".into();
+        r.assets[0].browser_download_url =
+            format!("{REPOSITORY}/releases/download/0.2.0/PhotoEnhancer-v0.2.0.exe");
+        assert_eq!(select_release(r, "0.1.0").unwrap().unwrap().tag, "0.2.0");
     }
     #[test]
     fn assets_and_digests_are_strict() {

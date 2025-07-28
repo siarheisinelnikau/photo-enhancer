@@ -26,7 +26,8 @@ def main():
     active = {tuple(line.split()[:2]) for line in tree.splitlines()}
     project_version = next(p["version"] for p in metadata["packages"] if p["source"] is None)
     notices = [f"PhotoEnhancer {project_version} — third-party notices\n",
-               "Generated from Cargo.lock for Windows x64. Includes build dependencies.\n"]
+               "Generated from Cargo.lock for Windows x64. Includes build dependencies.\n",
+               "\nPhotoEnhancer license\n\n", (ROOT / "LICENSE").read_text(encoding="utf-8")]
     missing = []
     for package in sorted(metadata["packages"], key=lambda p: (p["name"], p["version"])):
         if (package["name"], "v" + package["version"]) not in active or package["source"] is None:
@@ -62,7 +63,8 @@ def main():
             notices.append(file.read_text(encoding="utf-8", errors="replace") + "\n")
     target = ROOT / "docs" / "THIRD_PARTY_NOTICES.txt"
     target.parent.mkdir(exist_ok=True)
-    target.write_text("".join(notices), encoding="utf-8")
+    normalized = "\n".join(line.rstrip() for line in "".join(notices).splitlines()).rstrip() + "\n"
+    target.write_text(normalized, encoding="utf-8")
     print(f"Wrote {target}; {len(active)-1} dependencies; {len(missing)} missing license texts")
     for entry in missing:
         print(entry)

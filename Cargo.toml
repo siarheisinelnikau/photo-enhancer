@@ -9,7 +9,13 @@ repository = "https://github.com/siarheisinelnikau/photo-enhancer"
 
 [dependencies]
 anyhow = "1.0"
-eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "glow", "persistence", "x11"] }
+egui = { version = "=0.33.3", features = ["default_fonts"] }
+egui-winit = { version = "=0.33.3", default-features = false, features = ["clipboard", "links", "x11"] }
+egui_software_backend = { version = "=0.0.2", default-features = false, features = ["std"] }
+softbuffer = { version = "=0.4.8", default-features = false }
+bytemuck = "1.25"
+dirs = "6.0"
+ron = "0.11"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 png = "0.18.1"
 rfd = "0.15.4"
@@ -21,6 +27,9 @@ tempfile = "3.27"
 ureq = { version = "3.5", default-features = false, features = ["rustls", "json"] }
 self-replace = "1.5"
 winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader", "Win32_System_Threading"] }
 
 [[bin]]
 name = "PhotoEnhancer"

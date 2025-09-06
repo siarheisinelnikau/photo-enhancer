@@ -39,6 +39,10 @@ def main():
         run(executable, ["--diagnose", report, "--input", fixture], 25)
         evidence = json.loads(report.read_text())
         print(json.dumps(evidence, indent=2), flush=True)
+        input_events = {"pointer_move", "pointer_boundary", "pointer_button", "wheel", "key"}
+        if any(any(count and name in input_events for name, count in sample.get("events", {}).items())
+               for sample in evidence["samples"]):
+            raise RuntimeError("The idle sample received desktop input; it cannot certify settled idle behavior")
         if any(not sample["cpu_available"] or sample["window_visible"] != (sample["state"] != "hidden")
                or sample["layout_frames"] or sample["raster_frames"] or sample["presentations"]
                or sample["cpu_percent_one_core"] > 5 for sample in evidence["samples"]):

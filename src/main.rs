@@ -1018,6 +1018,91 @@ mod ui_tests {
     }
 
     #[test]
+    fn unchanged_workspace_stops_requesting_frames_after_layout_settles() {
+        for (width, height) in [(920.0, 640.0), (1200.0, 820.0), (1280.0, 900.0)] {
+            let ctx = egui::Context::default();
+            let mut app = PhotoEnhancer::new(
+                ctx.clone(),
+                Preferences {
+                    startup_checks: false,
+                    ..Default::default()
+                },
+            );
+            let mut recurring = 0;
+            for step in 0..180 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, height),
+                    )),
+                    time: Some(step as f64 / 60.0),
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| app.update(ctx));
+                if step >= 150
+                    && output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                        == Duration::ZERO
+                {
+                    recurring += 1;
+                }
+            }
+            assert_eq!(
+                recurring,
+                0,
+                "Unchanged {width}x{height} UI kept requesting frames: {:?}",
+                ctx.repaint_causes()
+            );
+        }
+    }
+
+    #[test]
+    fn stationary_hover_over_adjustments_and_scrollbar_does_not_keep_redrawing() {
+        for pointer in [
+            egui::pos2(1020.0, 160.0),
+            egui::pos2(1178.0, 160.0),
+            egui::pos2(300.0, 300.0),
+        ] {
+            let ctx = egui::Context::default();
+            let mut app = PhotoEnhancer::new(
+                ctx.clone(),
+                Preferences {
+                    startup_checks: false,
+                    ..Default::default()
+                },
+            );
+            let mut recurring = 0;
+            for step in 0..240 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1200.0, 820.0),
+                    )),
+                    time: Some(step as f64 / 60.0),
+                    events: if step == 10 {
+                        vec![egui::Event::PointerMoved(pointer)]
+                    } else {
+                        Vec::new()
+                    },
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| app.update(ctx));
+                if step >= 210
+                    && output.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+                        == Duration::ZERO
+                {
+                    recurring += 1;
+                }
+            }
+            assert_eq!(
+                recurring,
+                0,
+                "Stationary hover at {pointer:?} kept requesting frames: {:?}",
+                ctx.repaint_causes()
+            );
+        }
+    }
+
+    #[test]
     fn settings_with_long_error_remain_inside_the_minimum_window() {
         let ctx = egui::Context::default();
         let preferences = Preferences {

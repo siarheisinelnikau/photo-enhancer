@@ -45,6 +45,8 @@ pub struct FrameMetrics {
     pub process_cpu_seconds: f64,
     pub graphics_modules: Vec<String>,
     pub presents: u64,
+    pub events: std::collections::BTreeMap<String, u64>,
+    pub repaint_causes: std::collections::BTreeMap<String, u64>,
 }
 
 pub fn run(diagnostic: Option<(std::path::PathBuf, Option<std::path::PathBuf>)>) -> Result<()> {
@@ -229,6 +231,17 @@ impl Host {
                 data.insert_temp(egui::Id::new("frame_metrics"), self.metrics.clone())
             });
             let mut output = self.ctx.run(input, |ctx| self.app.update(ctx));
+            if self.diagnostic.is_some() {
+                for cause in self.ctx.repaint_causes() {
+                    let file = cause.file.rsplit(['/', '\\']).next().unwrap_or(cause.file);
+                    let key = format!("{file}:{} {}", cause.line, cause.reason);
+                    if self.metrics.repaint_causes.len() < 32
+                        || self.metrics.repaint_causes.contains_key(&key)
+                    {
+                        *self.metrics.repaint_causes.entry(key).or_default() += 1;
+                    }
+                }
+            }
             bridge.handle_platform_output(window, std::mem::take(&mut output.platform_output));
             let mut actions = Vec::new();
             if let Some(root) = output.viewport_output.get(&egui::ViewportId::ROOT) {
@@ -349,6 +362,8 @@ struct Sample {
     cpu: Option<f64>,
     frames: u64,
     presents: u64,
+    events: std::collections::BTreeMap<String, u64>,
+    repaint_causes: std::collections::BTreeMap<String, u64>,
 }
 impl Sample {
     fn new(metrics: &FrameMetrics) -> Self {
@@ -357,6 +372,8 @@ impl Sample {
             cpu: process_cpu_seconds(),
             frames: metrics.frames,
             presents: metrics.presents,
+            events: metrics.events.clone(),
+            repaint_causes: metrics.repaint_causes.clone(),
         }
     }
 }
@@ -386,7 +403,18 @@ impl Diagnostic {
             let cpu = process_cpu_seconds()
                 .zip(start.cpu)
                 .map(|(end, start)| end - start);
-            self.samples.push(serde_json::json!({"state":state,"window_visible":window_visible,"cpu_available":cpu.is_some(),"wall_seconds":wall,"cpu_seconds":cpu,"cpu_percent_one_core":cpu.map(|cpu|100.0*cpu/wall),"cpu_percent_machine":cpu.map(|cpu|100.0*cpu/wall/std::thread::available_parallelism().map(|n|n.get()).unwrap_or(1) as f64),"layout_frames":metrics.frames-start.frames,"raster_frames":metrics.frames-start.frames,"presentations":metrics.presents-start.presents}));
+            let difference =
+                |after: &std::collections::BTreeMap<String, u64>,
+                 before: &std::collections::BTreeMap<String, u64>| {
+                    after
+                        .iter()
+                        .filter_map(|(key, value)| {
+                            let delta = value - before.get(key).copied().unwrap_or(0);
+                            (delta > 0).then_some((key.clone(), delta))
+                        })
+                        .collect::<std::collections::BTreeMap<_, _>>()
+                };
+            self.samples.push(serde_json::json!({"state":state,"window_visible":window_visible,"cpu_available":cpu.is_some(),"wall_seconds":wall,"cpu_seconds":cpu,"cpu_percent_one_core":cpu.map(|cpu|100.0*cpu/wall),"cpu_percent_machine":cpu.map(|cpu|100.0*cpu/wall/std::thread::available_parallelism().map(|n|n.get()).unwrap_or(1) as f64),"layout_frames":metrics.frames-start.frames,"raster_frames":metrics.frames-start.frames,"presentations":metrics.presents-start.presents,"events":difference(&metrics.events,&start.events),"repaint_causes":difference(&metrics.repaint_causes,&start.repaint_causes)}));
         }
     }
 }
@@ -495,6 +523,13 @@ impl ApplicationHandler<Wake> for Host {
         }
     }
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Wake) {
+        if self.diagnostic.is_some() {
+            *self
+                .metrics
+                .events
+                .entry("egui_repaint".into())
+                .or_default() += 1;
+        }
         self.app.receive(&self.ctx);
         let Wake::Repaint { when, pass } = event;
         if pass + 1 >= self.ctx.cumulative_pass_nr()
@@ -514,6 +549,24 @@ impl ApplicationHandler<Wake> for Host {
         };
         if id != window.id() {
             return;
+        }
+        if self.diagnostic.is_some() {
+            let name = match &event {
+                WindowEvent::CursorMoved { .. } => "pointer_move",
+                WindowEvent::CursorEntered { .. } | WindowEvent::CursorLeft { .. } => {
+                    "pointer_boundary"
+                }
+                WindowEvent::MouseInput { .. } => "pointer_button",
+                WindowEvent::MouseWheel { .. } => "wheel",
+                WindowEvent::KeyboardInput { .. } => "key",
+                WindowEvent::Focused(_) => "focus",
+                WindowEvent::Resized(_) => "resize",
+                WindowEvent::ScaleFactorChanged { .. } => "dpi",
+                WindowEvent::Occluded(_) => "occlusion",
+                WindowEvent::RedrawRequested => "native_redraw",
+                _ => "other",
+            };
+            *self.metrics.events.entry(name.into()).or_default() += 1;
         }
         match event {
             WindowEvent::CloseRequested => {

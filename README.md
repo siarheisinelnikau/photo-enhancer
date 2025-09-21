@@ -2,11 +2,23 @@
 
 A local photo workspace for Windows: reduce mild noise, adjust light and color, sharpen edges, and enlarge photos with deterministic interpolation. Written in Rust with an original egui interface. No account, model download, cloud inference, or paid API is required.
 
-**Status: first implementation, v0.1.0.** Windows x64 compilation and generated-fixture tests are available. Interactive UI, monitor color, and packaged updater behavior still require manual validation. The planned [canonical repository](https://github.com/siarheisinelnikau/photo-enhancer) and releases have not been published in this development session.
+**Status: first implementation, v0.1.0.** Windows x64, CPU-rendered interface, generated-fixture tests, and bounded visual/runtime diagnostics. Real-monitor color, OS-native interactions, and packaged updater installation still require manual validation. The planned [canonical repository](https://github.com/siarheisinelnikau/photo-enhancer) and releases have not been published in this development session.
+
+## Screenshots
+
+Real client-area captures from the executable, using the production UI and CPU rasterizer. The landscape is an original generated test fixture, processed by the application's actual enhancement engine. These captures exclude native window chrome and system dialogs.
+
+![PhotoEnhancer workspace with labeled before and after comparison, adjustment controls, and export action](docs/screenshots/workspace.png)
+
+Workspace at 1280 × 900 logical pixels, 100% scale. The primary export action stays visible; batch controls expand when needed.
+
+![PhotoEnhancer settings with update controls, version, enhancement capabilities, and diagnostic and license sections](docs/screenshots/settings.png)
+
+Settings in an isolated capture profile. Startup checks are disabled for capture; they are enabled by default in normal operation.
 
 ## What works in this version
 
-- Open PNG/JPEG, apply EXIF rotation/mirroring, and compare before/after with a split divider, preview zoom, and pan.
+- Open PNG/JPEG, apply EXIF rotation/mirroring, and compare before/after by dragging the labeled divider, with preview zoom and pan.
 - Adjust exposure, saturation, and warmth in linear sRGB. Apply a fixed 3×3 edge-aware denoiser and an unsharp mask.
 - Enlarge 1×–4× with bilinear interpolation in linear light and premultiplied alpha. This does **not** recover true lost detail or perform learned restoration.
 - Render an explicit screen-size preview; export processes the original at full resolution using the current controls.
@@ -24,17 +36,17 @@ Preview images have a maximum 1280-pixel edge. Detail filters run after preview 
 
 ## Use
 
-1. Open an image and adjust the Develop controls.
-2. Click **Render preview**, then use Compare / Before / After and the divider. A notice marks previews that no longer match the controls.
+1. Click **Open photo…** and adjust light, color, and detail in the right panel.
+2. Click **Update preview**, then use Compare / Before / After and drag the divider. A notice marks previews that no longer match the controls.
 3. Choose PNG or JPEG and click **Export image…**. The extension follows the selected format. Existing names are protected even if a save dialog permits selecting them.
-4. For batches, add photos, choose an output folder, set adjustments/format, then **Run batch**. Files use `original-stem-enhanced.png` or `.jpg`. Duplicate stems produce per-file collision errors; completed items remain saved when cancelling.
+4. For batches, expand **Batch export**, add photos, choose an output folder, set adjustments/format, then **Export batch**. Files use `original-stem-enhanced.png` or `.jpg`. Duplicate stems produce per-file collision errors; completed items remain saved when cancelling.
 5. Open **Settings** for update controls and the local model capability status.
 
-Settings are stored by eframe in its per-user `PhotoEnhancer` application-data directory, independently of the portable executable. Photos are never uploaded. Only startup/manual update checks and user-initiated downloads contact GitHub. Disable **Check for updates on startup** to prevent startup update requests. Startup failures stay in Settings without pop-up dialogs.
+Settings are stored in the per-user `PhotoEnhancer/data/preferences.json` application-data file, independently of the portable executable. The former `app.ron` preferences are read when upgrading from the initial OpenGL host; the legacy file is preserved. Photos are never uploaded. Only startup/manual update checks and user-initiated downloads contact GitHub. Disable **Check for updates on startup** to prevent startup update requests. Startup failures stay in Settings without pop-up dialogs.
 
 ## Build and package
 
-Use Windows x64 with the Rust MSVC toolchain, the Windows SDK and C++ linker already installed. The initial implementation was checked with Rust/Cargo 1.96.1. Cargo declares Rust 1.88 as its dependency-resolution baseline; that older compiler itself has not been tested. The Windows CRT is linked statically; the graphics host uses OpenGL via eframe/glow and needs a suitable existing driver. No GPU inference runtime is needed.
+Use Windows x64 with the Rust MSVC toolchain, the Windows SDK and C++ linker already installed. The initial implementation was checked with Rust/Cargo 1.96.1. Cargo declares Rust 1.88 as its dependency-resolution baseline; that older compiler itself has not been tested. The Windows CRT is linked statically. The interface is rasterized on the CPU with `egui_software_backend` and presented through Win32 GDI with `softbuffer`; the application has no OpenGL/Direct3D renderer. Windows desktop composition remains an OS responsibility. No GPU inference runtime is needed.
 
 ```powershell
 # Run from this repository. These commands do not launch the GUI.
@@ -55,13 +67,23 @@ The standalone executable requires no adjacent model or runtime files. Keep the 
 
 For dependency changes, regenerate notices with `python scripts/generate_notices.py --offline`; review both the dependency graph and license texts before publication.
 
+## Repeat the visual and rendering checks
+
+No computer-use automation is required. The developer-only modes parse before normal startup and do not read/write normal preferences, contact GitHub, or modify the input fixture.
+
+```powershell
+python scripts/generate_gui_fixtures.py
+python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.0.exe
+python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.0.exe --diagnose
+```
+
+The optional fixture/review scripts use Python with Pillow. Self-capture renders 16 bounded frames, writes PNG plus a manifest, then exits; it shares the production UI and rasterizer. Each invocation has internal and external deadlines. Review includes the standard and minimum-size workspace, settings at 125% scale, empty state, and a real decoding-error state. Inspect the resulting PNGs; exit success alone is not a visual review.
+
+The separate native diagnostic creates one disposable non-activating window, samples visible idle for five seconds, hides it for five seconds, restores it, samples restored idle for three seconds, records CPU and separate layout/raster/present counters, then exits. This checks scheduling and GDI presentation, independently of the screenshots. It does not simulate OS input or establish subjective responsiveness. See the measured evidence and remaining checks in [VALIDATION.md](docs/VALIDATION.md).
+
 ## Models and architecture
 
 Learned enhancement is explicitly **unavailable** in this build. A typed local inference adapter boundary is included, with no installed runtime, weights, or enabled download action. See [model integration requirements](docs/MODELS.md), [architecture](docs/ARCHITECTURE.md), [verification and pending manual checks](docs/VALIDATION.md), and the [initial release-note draft](docs/RELEASE_NOTES.md).
-
-## Screenshots
-
-Real application and Settings screenshots are **pending**. Desktop launch and capture were prohibited during this unattended implementation session. No mock screenshots or broken image links are included. Capture the actual packaged application and Settings after interactive validation, then add them here with English captions.
 
 ## License and independence
 

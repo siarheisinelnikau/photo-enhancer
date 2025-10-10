@@ -88,7 +88,7 @@ pub fn check() -> Result<Option<Available>> {
         cfg!(all(target_os = "windows", target_arch = "x86_64")),
         "In-app updates are available for Windows x64 portable builds only"
     );
-    let mut response=agent().get(API).header("User-Agent","PhotoEnhancer/0.1.0").header("Accept","application/vnd.github+json").call().context("Cannot check GitHub releases; the repository/release may not be published, or the network/rate limit may be unavailable")?;
+    let mut response=agent().get(API).header("User-Agent",concat!("PhotoEnhancer/",env!("CARGO_PKG_VERSION"))).header("Accept","application/vnd.github+json").call().context("Cannot check GitHub releases; the repository/release may not be published, or the network/rate limit may be unavailable")?;
     let release: Release = response
         .body_mut()
         .with_config()
@@ -150,7 +150,10 @@ fn install(update: &Available, cancel: &AtomicBool, progress: &AtomicU32) -> Res
     );
     let mut response = agent()
         .get(&update.asset.browser_download_url)
-        .header("User-Agent", "PhotoEnhancer/0.1.0")
+        .header(
+            "User-Agent",
+            concat!("PhotoEnhancer/", env!("CARGO_PKG_VERSION")),
+        )
         .call()
         .context("Update download failed")?;
     let mut temp = tempfile::NamedTempFile::new()?;

@@ -25,13 +25,14 @@ def run(executable, args, timeout):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, default=ROOT / "target/release/PhotoEnhancer.exe")
+    parser.add_argument("--input", type=Path, default=ROOT / ".test-output/gui-fixtures/harbor.png")
     parser.add_argument("--diagnose", action="store_true")
     args = parser.parse_args()
     executable = args.exe.resolve(strict=True)
     folder = ROOT / ".test-output/ui-review"
     folder.mkdir(parents=True, exist_ok=True)
     output = Path(tempfile.mkdtemp(prefix="run-", dir=folder))
-    fixture = ROOT / ".test-output/gui-fixtures/harbor.png"
+    fixture = args.input.resolve()
     if not fixture.is_file():
         raise RuntimeError("Generate fixtures first: python scripts/generate_gui_fixtures.py")
     if args.diagnose:
@@ -60,7 +61,7 @@ def main():
             ("error", "error", 920, 640, 1),
         ]:
             target = output / f"{name}.png"
-            selected_input = fixture.with_name("invalid.png") if screen == "error" else fixture
+            selected_input = ROOT / ".test-output/gui-fixtures/invalid.png" if screen == "error" else fixture
             run(executable, ["--capture", target, "--screen", screen, "--input", selected_input,
                              "--width", width, "--height", height, "--scale", scale], 15)
             with Image.open(target) as image:

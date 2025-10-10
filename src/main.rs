@@ -761,8 +761,8 @@ impl PhotoEnhancer {
                 ui.label("Local filters for light, color, noise and sharpness. Enlargement uses standard interpolation.");
                 if let Capability::Unavailable {..}=UnavailableBackend.capability() {ui.label(RichText::new("AI enhancement is not included in this version.").color(theme::MUTED));}
                 ui.collapsing("Supported images",|ui| {
-                    ui.label("8-bit sRGB PNG and JPEG, up to 24 megapixels. Output is limited to 32 megapixels and the memory budget.");
-                    ui.label("ICC, CMYK, HDR and high-bit-depth inputs need conversion first. PNG preserves transparency. Export removes original metadata.");
+                    ui.label("8-bit RGB or grayscale PNG and JPEG, up to 24 megapixels. Output is limited to 32 megapixels and the memory budget.");
+                    ui.label("Embedded RGB and grayscale color profiles are converted to sRGB automatically. CMYK, HDR and high-bit-depth inputs need conversion first. PNG preserves transparency; export removes original metadata.");
                 });
                 ui.hyperlink_to("Project on GitHub",updates::REPOSITORY);
                 ui.add_space(6.0);ui.separator();

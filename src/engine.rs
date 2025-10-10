@@ -141,7 +141,7 @@ pub fn load(path: &Path, cancel: &AtomicBool) -> Result<RgbaImage> {
             info.mastering_display_color_volume.is_none() && info.content_light_level.is_none(),
             "HDR PNG is unsupported"
         );
-        if info.srgb.is_none() {
+        if info.srgb.is_none() && info.icc_profile.is_none() {
             if let Some(gamma) = info.gama_chunk {
                 ensure!(
                     (45454..=45456).contains(&gamma.into_scaled()),
@@ -187,15 +187,80 @@ pub fn load(path: &Path, cancel: &AtomicBool) -> Result<RgbaImage> {
         ),
         "Only 8-bit images are supported; convert high-bit-depth images to sRGB first"
     );
-    ensure!(
-        decoder.icc_profile()?.is_none(),
-        "ICC-tagged input is not supported yet. Convert a copy to untagged sRGB first; the original has not been changed."
-    );
+    let profile = decoder
+        .icc_profile()
+        .context("Cannot read the photo's embedded color profile")?;
     let orientation = decoder.orientation()?;
     let mut image = DynamicImage::from_decoder(decoder)?;
     cancelled(cancel)?;
+    if let Some(profile) = profile {
+        image = DynamicImage::ImageRgba8(convert_profile_to_srgb(image, &profile, cancel)?);
+    }
     image.apply_orientation(orientation);
     Ok(image.into_rgba8())
+}
+
+fn convert_profile_to_srgb(
+    image: DynamicImage,
+    bytes: &[u8],
+    cancel: &AtomicBool,
+) -> Result<RgbaImage> {
+    use moxcms::{ColorProfile, DataColorSpace, Layout, ParsingOptions, TransformOptions};
+    cancelled(cancel)?;
+    ensure!(
+        bytes.len() < 4 * 1024 * 1024,
+        "The photo's color profile exceeds the 4 MiB limit"
+    );
+    let profile = ColorProfile::new_from_slice_with_options(
+        bytes,
+        ParsingOptions {
+            max_profile_size: 4 * 1024 * 1024,
+            max_allowed_clut_size: 4 * 1024 * 1024,
+            max_allowed_trc_size: 40_000,
+        },
+    )
+    .context("The photo's embedded color profile is damaged or unsupported")?;
+    let (layout, channels, alpha) = match image.color() {
+        ColorType::Rgb8 => (Layout::Rgb, 3, None),
+        ColorType::Rgba8 => (Layout::Rgba, 4, Some(3)),
+        ColorType::L8 => (Layout::Gray, 1, None),
+        ColorType::La8 => (Layout::GrayAlpha, 2, Some(1)),
+        _ => bail!("Color conversion supports 8-bit photos only"),
+    };
+    ensure!(
+        matches!(
+            (profile.color_space, layout),
+            (DataColorSpace::Rgb, Layout::Rgb | Layout::Rgba)
+                | (DataColorSpace::Gray, Layout::Gray | Layout::GrayAlpha)
+        ),
+        "The embedded color profile does not match this photo's RGB or grayscale pixels"
+    );
+    let transform = profile
+        .create_transform_8bit(
+            layout,
+            &ColorProfile::new_srgb(),
+            Layout::Rgba,
+            TransformOptions::default(),
+        )
+        .context("This photo's color profile cannot be converted to sRGB")?;
+    let mut output = RgbaImage::new(image.width(), image.height());
+    let input_stride = image.width() as usize * channels;
+    let output_stride = image.width() as usize * 4;
+    for (src, dst) in image
+        .as_bytes()
+        .chunks_exact(input_stride)
+        .zip(output.as_mut().chunks_exact_mut(output_stride))
+    {
+        cancelled(cancel)?;
+        transform
+            .transform(src, dst)
+            .context("The photo's color conversion failed")?;
+        // Preserve the original alpha exactly, independently of the CMS executor.
+        for (source, target) in src.chunks_exact(channels).zip(dst.chunks_exact_mut(4)) {
+            target[3] = alpha.map_or(255, |index| source[index]);
+        }
+    }
+    Ok(output)
 }
 
 fn validate_jpeg_header(reader: &mut (impl Read + Seek), cancel: &AtomicBool) -> Result<()> {

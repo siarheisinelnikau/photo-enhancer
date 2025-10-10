@@ -486,9 +486,14 @@ impl ApplicationHandler<Wake> for Host {
             return;
         }
         let result = (|| -> Result<()> {
+            let icon =
+                image::load_from_memory(include_bytes!("../assets/app-icon.png"))?.into_rgba8();
+            let (icon_width, icon_height) = icon.dimensions();
+            let icon = winit::window::Icon::from_rgba(icon.into_raw(), icon_width, icon_height)?;
             let window = Arc::new(
                 event_loop.create_window(
                     Window::default_attributes()
+                        .with_window_icon(Some(icon))
                         .with_title(if self.diagnostic.is_some() {
                             "PhotoEnhancer [bounded diagnostic]"
                         } else {

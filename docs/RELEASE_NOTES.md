@@ -1,6 +1,12 @@
-# PhotoEnhancer v0.1.0 — initial release draft
+# PhotoEnhancer v0.1.1 — local release draft
 
-This is the first PhotoEnhancer implementation. No preceding release exists and this draft has not been published.
+This is the first PhotoEnhancer release draft. No preceding published release exists. The v0.1.1 local build also fixes photo-opening and application-icon problems reported after the v0.1.0 development build. Nothing has been published.
+
+## Fixed in v0.1.1
+
+- Photos with supported embedded RGB or grayscale ICC profiles now open automatically. The application converts their colors locally to sRGB instead of asking the user to convert an ordinary photo first. sRGB, Display P3, Adobe RGB, grayscale gamma, alpha preservation, and JPEG orientation have regression coverage.
+- The standalone EXE now embeds an original multi-resolution application icon and product/version metadata. The native window uses the matching icon for its title bar and taskbar.
+- Settings describe automatic color-profile conversion, and update requests identify the actual installed version.
 
 ## Added
 
@@ -22,8 +28,8 @@ This is the first PhotoEnhancer implementation. No preceding release exists and 
 
 ## Download and platform
 
-The intended standalone Windows x64 asset is `PhotoEnhancer-v0.1.0.exe`, with `SHA256SUMS.txt` and license notices. It uses CPU rasterization with Windows GDI presentation and does not bundle models or require a paid service. No architecture suffix is used because only one executable architecture is planned.
+The intended standalone Windows x64 asset is `PhotoEnhancer-v0.1.1.exe`, with `SHA256SUMS.txt` and license notices. It uses CPU rasterization with Windows GDI presentation and does not bundle models or require a paid service. No architecture suffix is used because only one executable architecture is planned.
 
 ## Known limitations before publication
 
-Packaged update installation, clean-machine compatibility, real-monitor color/alpha evaluation, and OS-native interaction/accessibility checks remain pending. Real client-area screenshots and bounded native lifecycle diagnostics are included; they do not certify subjective responsiveness. ICC, high-bit-depth, non-sRGB, HDR, animated inputs, RAW and other unimplemented formats are refused. Preview detail is approximate and capped at 1280 px; full-resolution exports are the output-quality reference. Extremely large files are rejected rather than streamed. No learned model/backend is installed. The repository/release is not yet published; update failures correctly remain unavailable.
+Packaged update installation, clean-machine compatibility, real-monitor color/alpha evaluation, and OS-native interaction/accessibility checks remain pending. Real client-area screenshots and bounded native lifecycle diagnostics are included; they do not certify subjective responsiveness. Damaged or unsupported color profiles, CMYK/YCCK JPEG, high-bit-depth, unsupported unprofiled PNG color declarations, HDR, animated inputs, RAW and other unimplemented formats are refused. Preview detail is approximate and capped at 1280 px; full-resolution exports are the output-quality reference. Extremely large files are rejected rather than streamed. No learned model/backend is installed. The repository/release is not yet published; update failures correctly remain unavailable.

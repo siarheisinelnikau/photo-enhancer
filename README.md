@@ -2,7 +2,7 @@
 
 A local photo workspace for Windows: reduce mild noise, adjust light and color, sharpen edges, and enlarge photos with deterministic interpolation. Written in Rust with an original egui interface. No account, model download, cloud inference, or paid API is required.
 
-**Status: first implementation, v0.1.0.** Windows x64, CPU-rendered interface, generated-fixture tests, and bounded visual/runtime diagnostics. Real-monitor color, OS-native interactions, and packaged updater installation still require manual validation. The planned [canonical repository](https://github.com/siarheisinelnikau/photo-enhancer) and releases have not been published in this development session.
+**Status: local development build, v0.1.1.** Windows x64, CPU-rendered interface, generated-fixture tests, and bounded visual/runtime diagnostics. Real-monitor color, OS-native interactions, and packaged updater installation still require manual validation. The planned [canonical repository](https://github.com/siarheisinelnikau/photo-enhancer) and releases have not been published in this development session.
 
 ## Screenshots
 
@@ -10,7 +10,7 @@ Real client-area captures from the executable, using the production UI and CPU r
 
 ![PhotoEnhancer workspace with labeled before and after comparison, adjustment controls, and export action](docs/screenshots/workspace.png)
 
-Workspace at 1280 × 900 logical pixels, 100% scale. The primary export action stays visible; batch controls expand when needed.
+Workspace at 1280 × 900 logical pixels, 100% scale, opening an ICC-tagged sRGB fixture. The primary export action stays visible; batch controls expand when needed.
 
 ![PhotoEnhancer settings with update controls, version, enhancement capabilities, and diagnostic and license sections](docs/screenshots/settings.png)
 
@@ -18,7 +18,7 @@ Settings in an isolated capture profile. Startup checks are disabled for capture
 
 ## What works in this version
 
-- Open PNG/JPEG, apply EXIF rotation/mirroring, and compare before/after by dragging the labeled divider, with preview zoom and pan.
+- Open PNG/JPEG, automatically convert embedded RGB/grayscale ICC profiles to sRGB, apply EXIF rotation/mirroring, and compare before/after by dragging the labeled divider, with preview zoom and pan.
 - Adjust exposure, saturation, and warmth in linear sRGB. Apply a fixed 3×3 edge-aware denoiser and an unsharp mask.
 - Enlarge 1×–4× with bilinear interpolation in linear light and premultiplied alpha. This does **not** recover true lost detail or perform learned restoration.
 - Render an explicit screen-size preview; export processes the original at full resolution using the current controls.
@@ -28,7 +28,7 @@ Settings in an isolated capture profile. Startup checks are disabled for capture
 
 ## Supported images and limits
 
-This version accepts **8-bit sRGB PNG and JPEG**. Untagged inputs are assumed to be sRGB. ICC-tagged images, CMYK/YCCK JPEG, declared non-sRGB PNG gamma/primaries, HDR, animated PNG, and high-bit-depth inputs are rejected with an explanation; convert a copy to supported sRGB first. RAW, TIFF, HEIC, AVIF and WebP are not implemented. The preview is not a calibrated, color-managed soft-proofing environment.
+This version accepts **8-bit RGB/grayscale PNG and JPEG**. Embedded ICC profiles, including sRGB, Display P3 and Adobe RGB, are converted locally to sRGB; the original file and alpha are preserved. Untagged inputs are assumed to be sRGB. Damaged, mismatched or unsupported profiles produce a specific error. CMYK/YCCK JPEG, non-sRGB PNG gamma/primaries without an ICC profile, HDR, animated PNG, and high-bit-depth inputs still require conversion to supported sRGB. RAW, TIFF, HEIC, AVIF and WebP are not implemented. The preview is not a calibrated, color-managed soft-proofing environment.
 
 Files are limited to 128 MiB; input to 24 megapixels, output to 32 megapixels, and a conservative 512 MiB processing allocation plan. The combined allocation formula can reject images below the individual pixel limits. Full buffers are bounded rather than streaming arbitrarily large images from disk. Neighborhood operations have fixed support and use 64-row processing tiles; no full-frame float buffers or unbounded worker pools are used.
 
@@ -57,7 +57,7 @@ Use Windows x64 with the Rust MSVC toolchain, the Windows SDK and C++ linker alr
 Drop `-Offline` on a development machine that needs to resolve the locked dependencies. Project Cargo configuration limits builds to two jobs and uses the local `target/`. The package script produces:
 
 ```text
-dist/PhotoEnhancer-v0.1.0.exe
+dist/PhotoEnhancer-v0.1.1.exe
 dist/SHA256SUMS.txt
 dist/LICENSE
 dist/THIRD_PARTY_NOTICES.txt
@@ -73,8 +73,9 @@ No computer-use automation is required. The developer-only modes parse before no
 
 ```powershell
 python scripts/generate_gui_fixtures.py
-python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.0.exe
-python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.0.exe --diagnose
+python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.1.exe
+python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.1.exe --diagnose
+python scripts/verify_windows_icon.py dist/PhotoEnhancer-v0.1.1.exe
 ```
 
 The optional fixture/review scripts use Python with Pillow. Self-capture renders 16 bounded frames, writes PNG plus a manifest, then exits; it shares the production UI and rasterizer. Each invocation has internal and external deadlines. Review includes the standard and minimum-size workspace, settings at 125% scale, empty state, and a real decoding-error state. Inspect the resulting PNGs; exit success alone is not a visual review.
@@ -83,7 +84,7 @@ The separate native diagnostic creates one disposable non-activating window, sam
 
 ## Models and architecture
 
-Learned enhancement is explicitly **unavailable** in this build. A typed local inference adapter boundary is included, with no installed runtime, weights, or enabled download action. See [model integration requirements](docs/MODELS.md), [architecture](docs/ARCHITECTURE.md), [verification and pending manual checks](docs/VALIDATION.md), and the [initial release-note draft](docs/RELEASE_NOTES.md).
+Learned enhancement is explicitly **unavailable** in this build. A typed local inference adapter boundary is included, with no installed runtime, weights, or enabled download action. See [model integration requirements](docs/MODELS.md), [architecture](docs/ARCHITECTURE.md), [verification and pending manual checks](docs/VALIDATION.md), and the [release-note draft](docs/RELEASE_NOTES.md).
 
 ## License and independence
 

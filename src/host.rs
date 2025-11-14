@@ -29,6 +29,7 @@ struct Host {
     dirty: bool,
     deadline: Option<(Instant, u64)>,
     close: bool,
+    occluded: bool,
     store: Option<PreferencesStore>,
     saved: Preferences,
     error: Option<String>,
@@ -102,6 +103,7 @@ pub fn run(diagnostic: Option<(std::path::PathBuf, Option<std::path::PathBuf>)>)
         dirty: true,
         deadline: None,
         close: false,
+        occluded: false,
         store,
         saved: prefs,
         error: None,
@@ -169,12 +171,13 @@ impl Host {
         diagnostic.phase += 1;
     }
     fn visible(&self) -> bool {
-        self.window.as_ref().is_some_and(|window| {
-            window.is_visible() != Some(false)
-                && window.is_minimized() != Some(true)
-                && window.inner_size().width > 0
-                && window.inner_size().height > 0
-        })
+        !self.occluded
+            && self.window.as_ref().is_some_and(|window| {
+                window.is_visible() != Some(false)
+                    && window.is_minimized() != Some(true)
+                    && window.inner_size().width > 0
+                    && window.inner_size().height > 0
+            })
     }
     fn persist(&mut self) {
         if self.saved != self.app.preferences
@@ -290,6 +293,9 @@ impl Host {
         if rendered {
             let elapsed = start.elapsed().as_secs_f64() * 1000.0;
             self.metrics.frames += 1;
+            if self.metrics.frames == 1 {
+                photo_enhancer::updates::cleanup_after_startup();
+            }
             self.metrics.last_ms = elapsed;
             self.metrics.max_ms = self.metrics.max_ms.max(elapsed);
             self.metrics.total_ms += elapsed;
@@ -486,14 +492,36 @@ impl ApplicationHandler<Wake> for Host {
             return;
         }
         let result = (|| -> Result<()> {
-            let icon =
-                image::load_from_memory(include_bytes!("../assets/app-icon.png"))?.into_rgba8();
-            let (icon_width, icon_height) = icon.dimensions();
-            let icon = winit::window::Icon::from_rgba(icon.into_raw(), icon_width, icon_height)?;
+            #[cfg(windows)]
+            let (icon, taskbar_icon) = {
+                use winit::platform::windows::IconExtWindows;
+                (
+                    winit::window::Icon::from_resource(
+                        1,
+                        Some(winit::dpi::PhysicalSize::new(16, 16)),
+                    )?,
+                    winit::window::Icon::from_resource(
+                        1,
+                        Some(winit::dpi::PhysicalSize::new(32, 32)),
+                    )?,
+                )
+            };
+            #[cfg(not(windows))]
+            let icon = {
+                let image =
+                    image::load_from_memory(include_bytes!("../assets/app-icon.png"))?.into_rgba8();
+                let (width, height) = image.dimensions();
+                winit::window::Icon::from_rgba(image.into_raw(), width, height)?
+            };
+            let attributes = Window::default_attributes().with_window_icon(Some(icon));
+            #[cfg(windows)]
+            let attributes = {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes.with_taskbar_icon(Some(taskbar_icon))
+            };
             let window = Arc::new(
                 event_loop.create_window(
-                    Window::default_attributes()
-                        .with_window_icon(Some(icon))
+                    attributes
                         .with_title(if self.diagnostic.is_some() {
                             "PhotoEnhancer [bounded diagnostic]"
                         } else {
@@ -586,6 +614,9 @@ impl ApplicationHandler<Wake> for Host {
                 }
             }
             _ => {
+                if let WindowEvent::Occluded(occluded) = &event {
+                    self.occluded = *occluded;
+                }
                 let response = self
                     .bridge
                     .as_mut()

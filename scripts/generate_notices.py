@@ -24,13 +24,13 @@ def main():
         tree_command.append("--offline")
     tree = subprocess.check_output(tree_command, cwd=ROOT, encoding="utf-8")
     active = {tuple(line.split()[:2]) for line in tree.splitlines()}
-    project_version = next(p["version"] for p in metadata["packages"] if p["source"] is None)
+    project_version = next(p["version"] for p in metadata["packages"] if p["name"] == "photo-enhancer")
     notices = [f"PhotoEnhancer {project_version} — third-party notices\n",
                "Generated from Cargo.lock for Windows x64. Includes build dependencies.\n",
                "\nPhotoEnhancer license\n\n", (ROOT / "LICENSE").read_text(encoding="utf-8")]
     missing = []
     for package in sorted(metadata["packages"], key=lambda p: (p["name"], p["version"])):
-        if (package["name"], "v" + package["version"]) not in active or package["source"] is None:
+        if (package["name"], "v" + package["version"]) not in active or package["name"] == "photo-enhancer":
             continue
         directory = Path(package["manifest_path"]).parent
         notices.append(f"\n{'=' * 72}\n{package['name']} {package['version']}\n"
@@ -39,6 +39,8 @@ def main():
         files = set()
         for pattern in ("LICENSE*", "LICENCE*", "COPYING*", "NOTICE*", "license*", "Copyright*", "COPYRIGHT*"):
             files.update(p for p in directory.glob(pattern) if p.is_file())
+        if package["name"] == "rust-auto-updator":
+            files.add(directory.parents[1] / "LICENSE")
         if package["license_file"]:
             files.add(directory / package["license_file"])
         if package["name"] == "epaint_default_fonts":
@@ -59,7 +61,7 @@ def main():
                 missing.append(f"{package['name']} {package['version']}: {license_id}")
                 notices.append("License text not shipped in this crate source archive.\n")
         for file in sorted(files):
-            notices.append(f"\n--- {file.relative_to(directory).as_posix()} ---\n")
+            notices.append(f"\n--- {file.relative_to(directory).as_posix() if file.is_relative_to(directory) else file.name} ---\n")
             notices.append(file.read_text(encoding="utf-8", errors="replace") + "\n")
     target = ROOT / "docs" / "THIRD_PARTY_NOTICES.txt"
     target.parent.mkdir(exist_ok=True)

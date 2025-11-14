@@ -18,10 +18,18 @@ use std::{
         atomic::Ordering,
         mpsc::{self, Receiver},
     },
-    time::Duration,
 };
 
 fn main() -> anyhow::Result<()> {
+    if updates::helper_cli().map_err(anyhow::Error::msg)? {
+        return Ok(());
+    }
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--cleanup-update")
+    {
+        return host::run(None);
+    }
     match capture::parse_args()? {
         capture::Launch::Normal => host::run(None),
         capture::Launch::Capture(options) => capture::save(options),
@@ -102,6 +110,8 @@ struct PhotoEnhancer {
     update_failed: bool,
     available: Option<updates::Available>,
     installed: bool,
+    prepared_update: Option<updates::Prepared>,
+    update_progress: f32,
 }
 impl PhotoEnhancer {
     fn new(ctx: egui::Context, preferences: Preferences) -> Self {
@@ -109,7 +119,7 @@ impl PhotoEnhancer {
         let image_ctx = ctx.clone();
         let update_ctx = ctx.clone();
         let worker = Worker::new(move || image_ctx.request_repaint());
-        let updater = updates::Updater::new(move || update_ctx.request_repaint());
+        let updater = updates::start(move || update_ctx.request_repaint());
         let startup = preferences.startup_checks;
         let mut app = Self {
             worker,
@@ -143,6 +153,8 @@ impl PhotoEnhancer {
             update_failed: false,
             available: None,
             installed: false,
+            prepared_update: None,
+            update_progress: 0.0,
         };
         if startup {
             app.check_updates();
@@ -294,35 +306,45 @@ impl PhotoEnhancer {
                 self.next_batch();
             }
         }
-        if let Ok(event) = self.updater.rx.try_recv() {
-            self.update_busy = false;
-            self.installing = false;
+        while let Ok(event) = self.updater.events.try_recv() {
             match event {
-                updates::Event::Checked(result) => match result {
-                    Ok(Some(update)) => {
-                        self.update_status = format!("Version {} is available", update.version);
-                        self.available = Some(update);
+                updates::Event::Checked(result) => {
+                    self.update_busy = false;
+                    match result {
+                        Ok(Some(update)) => {
+                            self.update_status = format!("Version {} is available", update.version);
+                            self.available = Some(update);
+                        }
+                        Ok(None) => {
+                            self.update_status = "You are up to date".into();
+                            self.available = None;
+                        }
+                        Err(error) => {
+                            self.update_status = error;
+                            self.update_failed = true;
+                        }
                     }
-                    Ok(None) => {
-                        self.update_status = "You are up to date".into();
-                        self.available = None;
+                }
+                updates::Event::Progress { received, total } => {
+                    self.update_progress = received as f32 / total.max(1) as f32;
+                }
+                updates::Event::Ready(result) => {
+                    self.update_busy = false;
+                    self.installing = false;
+                    match result {
+                        Ok(prepared) => {
+                            self.prepared_update = Some(prepared);
+                            self.installed = true;
+                            self.update_status =
+                                "Download verified. Install and restart when your work is saved."
+                                    .into();
+                        }
+                        Err(error) => {
+                            self.update_status = error;
+                            self.update_failed = true;
+                        }
                     }
-                    Err(error) => {
-                        self.update_status = error;
-                        self.update_failed = true;
-                    }
-                },
-                updates::Event::Installed(result) => match result {
-                    Ok(()) => {
-                        self.installed = true;
-                        self.update_status =
-                            "Update installed. Restart PhotoEnhancer to use it.".into();
-                    }
-                    Err(error) => {
-                        self.update_status = error;
-                        self.update_failed = true;
-                    }
-                },
+                }
             }
         }
     }
@@ -360,10 +382,31 @@ impl PhotoEnhancer {
         }
     }
     fn check_updates(&mut self) {
-        if self.updater.submit(updates::Command::Check).is_ok() {
-            self.update_failed = false;
-            self.update_busy = true;
-            self.update_status = "Checking public GitHub releases…".into();
+        match self.updater.check() {
+            Ok(()) => {
+                self.update_failed = false;
+                self.update_busy = true;
+                self.update_status = "Checking public GitHub releases…".into();
+            }
+            Err(error) => {
+                self.update_failed = true;
+                self.update_status = error;
+            }
+        }
+    }
+    fn download_update(&mut self, update: updates::Available) {
+        match self.updater.download(update) {
+            Ok(()) => {
+                self.update_busy = true;
+                self.installing = true;
+                self.update_failed = false;
+                self.update_progress = 0.0;
+                self.update_status = "Downloading and verifying update…".into();
+            }
+            Err(error) => {
+                self.update_failed = true;
+                self.update_status = error;
+            }
         }
     }
     fn adjustment(
@@ -744,18 +787,20 @@ impl PhotoEnhancer {
                 }
                 if let Some(update)=self.available.clone() {
                     ui.label(format!("Version {} is available",update.version));
-                    if let Err(error)=updates::checksum(&update.asset) {ui.colored_label(theme::WARNING,error.to_string());}
-                    if ui.add_enabled(!self.update_busy && !self.busy && self.dialog.is_none() && !self.installed && updates::checksum(&update.asset).is_ok(),egui::Button::new("Download and install").fill(theme::ACCENT_DARK)).clicked() && self.updater.submit(updates::Command::Install(update)).is_ok() {
-                        self.update_busy=true;self.installing=true;self.update_failed=false;self.update_status="Downloading and verifying update…".into();
+                    if ui.add_enabled(!self.update_busy && !self.busy && self.dialog.is_none() && !self.installed,egui::Button::new("Download and install").fill(theme::ACCENT_DARK)).clicked() {
+                        self.download_update(update);
                     }
                 }
                 if self.installing {
-                    ui.add(egui::ProgressBar::new(self.updater.progress.load(Ordering::Relaxed) as f32/1000.0).show_percentage());
-                    if ui.button("Cancel download").clicked() {self.updater.cancel.store(true,Ordering::Relaxed);}
+                    ui.add(egui::ProgressBar::new(self.update_progress).show_percentage());
+                    if ui.button("Cancel download").clicked() {self.updater.cancel_download();}
                 }
-                if self.installed && ui.button("Restart now").clicked() {
-                    let result=std::env::current_exe().and_then(|exe|std::process::Command::new(exe).spawn());
-                    match result {Ok(_)=>ctx.send_viewport_cmd(egui::ViewportCommand::Close),Err(error)=>{self.update_failed=true;self.update_status=format!("Cannot restart: {error}. Close and reopen PhotoEnhancer.");}}
+                if self.installed && ui.add_enabled(!self.busy && self.dialog.is_none(), egui::Button::new("Install and restart")).clicked()
+                    && let Some(prepared) = &mut self.prepared_update {
+                    match updates::handoff(prepared) {
+                        Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                        Err(error) => {self.update_failed=true;self.update_status=error;}
+                    }
                 }
                 ui.add_space(6.0);ui.separator();theme::section(ui,"About photo enhancement");
                 ui.label("Local filters for light, color, noise and sharpness. Enlargement uses standard interpolation.");
@@ -873,15 +918,14 @@ impl PhotoEnhancer {
         if self.settings_open {
             self.settings_window(ctx);
         }
-        if self.busy || self.update_busy {
-            ctx.request_repaint_after(Duration::from_millis(150));
-        }
+        // Workers wake the loop on completions and throttled progress changes.
     }
 }
 
 #[cfg(test)]
 mod ui_tests {
     use super::*;
+    use std::time::Duration;
 
     fn frame(
         ctx: &egui::Context,
@@ -1015,6 +1059,29 @@ mod ui_tests {
         assert!(!app.busy && app.message_error);
         assert_eq!(app.current, Some(original));
         assert!(app.before.is_some() && app.after.is_some());
+    }
+
+    #[test]
+    fn pending_update_waits_for_worker_events_without_periodic_frames() {
+        let ctx = egui::Context::default();
+        let mut app = PhotoEnhancer::new(
+            ctx.clone(),
+            Preferences {
+                startup_checks: false,
+                ..Default::default()
+            },
+        );
+        app.update_busy = true;
+        for step in 0..24 {
+            let output = frame(&ctx, &mut app, Vec::new(), step as f64 * 0.2);
+            if step > 16 {
+                assert_eq!(
+                    output.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+                    Duration::MAX,
+                    "Waiting for an updater event must not schedule polling frames"
+                );
+            }
+        }
     }
 
     #[test]

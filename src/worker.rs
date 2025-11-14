@@ -53,6 +53,7 @@ impl Worker {
             .spawn(move || {
                 let mut loaded: Option<(PathBuf, RgbaImage)> = None;
                 while let Ok(command) = commands.recv() {
+                    let mut notified = std::time::Instant::now();
                     let result = (|| -> anyhow::Result<Event> {
                         match command {
                             Command::Open(path) => {
@@ -82,7 +83,14 @@ impl Worker {
                                 // Preview is a screen-size approximation, not a full resolution cache.
                                 settings.scale = 1;
                                 let image = engine::enhance(&thumb, &settings, &stop, &mut |p| {
-                                    done.store((p * 1000.0) as u32, Ordering::Relaxed);
+                                    if done.swap((p * 1000.0) as u32, Ordering::Relaxed)
+                                        != (p * 1000.0) as u32
+                                        && notified.elapsed()
+                                            >= std::time::Duration::from_millis(100)
+                                    {
+                                        wake();
+                                        notified = std::time::Instant::now();
+                                    }
                                 })?;
                                 Ok(Event::Previewed(image))
                             }
@@ -102,7 +110,14 @@ impl Worker {
                                 }
                                 let image = &loaded.as_ref().unwrap().1;
                                 let result = engine::enhance(image, &settings, &stop, &mut |p| {
-                                    done.store((p * 900.0) as u32, Ordering::Relaxed);
+                                    if done.swap((p * 900.0) as u32, Ordering::Relaxed)
+                                        != (p * 900.0) as u32
+                                        && notified.elapsed()
+                                            >= std::time::Duration::from_millis(100)
+                                    {
+                                        wake();
+                                        notified = std::time::Instant::now();
+                                    }
                                 })?;
                                 engine::export(&result, &output, format, quality, &stop)?;
                                 done.store(1000, Ordering::Relaxed);

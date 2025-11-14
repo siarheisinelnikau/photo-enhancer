@@ -6,6 +6,8 @@ Push-Location -LiteralPath $projectRoot
 try {
     & cargo fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw 'Formatting failed.' }
+    & python (Join-Path $PSScriptRoot "check_software_backend.py")
+    if ($LASTEXITCODE -ne 0) { throw "Software backend dependency check failed." }
     $cargoMode = @('--locked', '--jobs', '2', '--target-dir', (Join-Path $projectRoot 'target'))
     if ($Offline) { $cargoMode += '--offline' }
     & cargo test @cargoMode

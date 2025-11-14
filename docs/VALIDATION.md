@@ -66,3 +66,19 @@ No release, repository, tag, PR, or remote Git change was published. No live upd
 - Live DPI changes, minimize/restore image/font appearance, representative real-monitor color and transparent edges. The captured static layouts and engine tests have their own narrower evidence above.
 - Larger-image peak memory, codec cancellation latency, disk-full/unwritable destination handling and closing during work, using disposable fixtures.
 - After an authorized release exists: real startup opt-out across normal relaunch, manual update checking, network/rate-limit failures, asset verification, download cancellation, portable replacement/restart and preserved data. Never use a working installation as the updater fixture.
+
+
+## Shared updater and icon/render audit — 2026-11-01
+
+This pass used source inspection, isolated fixture tests, optimized compilation and native resource drawing in a memory DC. It did not launch an application window or use computer-use/input/screen-capture tools. Previous runtime measurements above belong to earlier binaries and are not a measurement of this change.
+
+The Windows graph uses `egui_software_backend` for CPU rasterization and `softbuffer` for GDI presentation; the graph check rejects GPU/OpenGL backends. The native host retains pixels for unchanged OS exposures and now suppresses frames for `Occluded(true)` as well as hidden/minimized windows. The former unconditional 150-ms repaint while any worker was busy was removed. Image progress and shared updater progress now post throttled notifications only for actual changes. A new headless regression verifies an outstanding update does not generate periodic repaint deadlines; existing settled-layout and stationary-hover tests remain covered.
+
+The executable icon has 16, 20, 24, 32, 40, 48, 64, 128 and 256-pixel variants. Alpha spans 0–255 at every size. Window and taskbar assignments now load the same native resource group rather than only the 256-pixel PNG. `native_icon_proof.py` loads the executable as resource data and calls Win32 `LoadImageW`/`DrawIconEx` into a memory bitmap on light/dark backgrounds; it neither executes the application nor captures the OS desktop. The image is an icon resource proof, not a tray screenshot. PhotoEnhancer has no tray interface.
+
+All reusable update mechanics are in `../rust-auto-updator`. The app uses its cancellable `Service`, accepts previously published digest-only assets, keeps the saved startup opt-out and manual checks, and waits for explicit installation/restart. The shared installer is configured to acknowledge successful first-frame startup before deleting rollback files, with a 30-second health window. The sibling workspace is required for local/CI source builds; no updater package or repository was remotely published.
+
+Remaining verification: actual new-binary visible/hidden/minimized idle frame/presentation counters, CPU sampling, restore/interaction/DPI behavior, OS taskbar appearance and full product update installation were not exercised under this no-GUI audit. Source inspection and headless tests do not certify that runtime gate.
+
+
+Final checks for this follow-up: `cargo test --all-targets --offline --locked` passed 27 tests; `cargo clippy --all-targets --offline --locked -- -D warnings` passed; `cargo fmt --all -- --check`, dependency graph and regenerated license notices passed. `scripts/package.ps1 -Offline` built `PhotoEnhancer-v0.1.1.exe` (Windows x64 GUI) and verified GDI imports with no OpenGL/Direct3D/Vulkan renderer imports. `verify_windows_icon.py` verified all nine embedded icon entries against the source. The final [native icon resource proof](screenshots/icon-resources.png) was visually inspected at native sizes on light and dark backgrounds. These are local verification artifacts, not a new release or publication.

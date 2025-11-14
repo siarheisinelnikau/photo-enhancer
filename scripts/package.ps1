@@ -20,6 +20,8 @@ try {
     $name = "PhotoEnhancer-v$version.exe"
     $asset = Join-Path $destination $name
     Copy-Item -LiteralPath (Join-Path $projectRoot 'target/release/PhotoEnhancer.exe') -Destination $asset
+    & python (Join-Path $PSScriptRoot "inspect_pe.py") $asset
+    if ($LASTEXITCODE -ne 0) { throw "Packaged icon or CPU/GDI import check failed." }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $projectRoot 'docs/THIRD_PARTY_NOTICES.txt') -Destination $destination
     $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()

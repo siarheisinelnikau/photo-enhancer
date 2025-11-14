@@ -44,9 +44,17 @@ Preview images have a maximum 1280-pixel edge. Detail filters run after preview 
 
 Settings are stored in the per-user `PhotoEnhancer/data/preferences.json` application-data file, independently of the portable executable. The former `app.ron` preferences are read when upgrading from the initial OpenGL host; the legacy file is preserved. Photos are never uploaded. Only startup/manual update checks and user-initiated downloads contact GitHub. Disable **Check for updates on startup** to prevent startup update requests. Startup failures stay in Settings without pop-up dialogs.
 
+## Shared updater dependency
+
+The reusable release discovery, verified download, cancellation and Windows replacement logic now live in the sibling `rust-auto-updator` workspace. `src/updates.rs` contains only PhotoEnhancer configuration and helper routing. Check out that workspace alongside this repository as `../rust-auto-updator`; CI and source-only builds need the same layout. The dependency is local and has not been published by this change.
+
+Startup checking remains asynchronous and optional; manual checking always remains available. Installation starts only after the user downloads a verified release and selects **Install and restart**. Settings and photos stay outside the replacement transaction. Historical releases with only a GitHub SHA-256 digest remain accepted; an available checksum file is also verified. Cleanup waits until the replacement renders its first successful frame.
+
+The app is a window-based editor and has no tray icon or tray workflow. Its native window and taskbar icons now load the same multiresolution resources as the executable. The [native icon resource proof](docs/screenshots/icon-resources.png) shows those resources on light/dark backgrounds; it is not an OS screenshot.
+
 ## Build and package
 
-Use Windows x64 with the Rust MSVC toolchain, the Windows SDK and C++ linker already installed. The initial implementation was checked with Rust/Cargo 1.96.1. Cargo declares Rust 1.88 as its dependency-resolution baseline; that older compiler itself has not been tested. The Windows CRT is linked statically. The interface is rasterized on the CPU with `egui_software_backend` and presented through Win32 GDI with `softbuffer`; the application has no OpenGL/Direct3D renderer. Windows desktop composition remains an OS responsibility. No GPU inference runtime is needed.
+Use Windows x64 with the Rust MSVC toolchain, the Windows SDK and C++ linker already installed. The initial implementation was checked with Rust/Cargo 1.96.1. Cargo declares Rust 1.95 as its dependency-resolution baseline; that older compiler itself has not been tested. The Windows CRT is linked statically. The interface is rasterized on the CPU with `egui_software_backend` and presented through Win32 GDI with `softbuffer`; the application has no OpenGL/Direct3D renderer. Windows desktop composition remains an OS responsibility. No GPU inference runtime is needed.
 
 ```powershell
 # Run from this repository. These commands do not launch the GUI.

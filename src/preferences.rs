@@ -84,4 +84,37 @@ mod tests {
         assert_eq!(store.load().unwrap(), prefs);
         assert_eq!(std::fs::read_to_string(legacy).unwrap(), old);
     }
+
+    #[test]
+    fn old_json_keeps_export_options_and_defaults_new_preferences() {
+        let preferences: Preferences =
+            serde_json::from_str(r#"{"startup_checks":false,"format":"Jpeg","quality":87}"#)
+                .unwrap();
+        assert!(!preferences.startup_checks);
+        assert_eq!(preferences.format, crate::OutputFormat::Jpeg);
+        assert_eq!(preferences.quality, 87);
+        assert_eq!(preferences.language, crate::Language::English);
+        assert_eq!(preferences.theme, crate::theme::Theme::Dark);
+        let future: Preferences =
+            serde_json::from_str(r#"{"language":"future-language","theme":"future-theme"}"#)
+                .unwrap();
+        assert_eq!(future.language, crate::Language::English);
+        assert_eq!(future.theme, crate::theme::Theme::Dark);
+    }
+
+    #[test]
+    fn language_and_theme_survive_atomic_save_without_resetting_opt_out() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore {
+            path: directory.path().join("preferences.json"),
+        };
+        let preferences = Preferences {
+            startup_checks: false,
+            language: crate::Language::Russian,
+            theme: crate::theme::Theme::Light,
+            ..Default::default()
+        };
+        store.save(&preferences).unwrap();
+        assert_eq!(store.load().unwrap(), preferences);
+    }
 }

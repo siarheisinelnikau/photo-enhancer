@@ -1,35 +1,24 @@
-# PhotoEnhancer v0.1.1 — local release draft
+# PhotoEnhancer v0.2.0
 
-This is the first PhotoEnhancer release draft. No preceding published release exists. The v0.1.1 local build also fixes photo-opening and application-icon problems reported after the v0.1.0 development build. Nothing has been published.
-
-## Fixed in v0.1.1
-
-- Photos with supported embedded RGB or grayscale ICC profiles now open automatically. The application converts their colors locally to sRGB instead of asking the user to convert an ordinary photo first. sRGB, Display P3, Adobe RGB, grayscale gamma, alpha preservation, and JPEG orientation have regression coverage.
-- The standalone EXE now embeds an original multi-resolution application icon and product/version metadata. The native window uses the matching icon for its title bar and taskbar.
-- Settings describe automatic color-profile conversion, and update requests identify the actual installed version.
+PhotoEnhancer now offers a translated interface and a choice of light or dark appearance. These changes are compared with the v0.1.1 source baseline; previous validation notes remain archived with that version.
 
 ## Added
 
-- Local PNG/JPEG enhancement with exposure, saturation, warmth, mild edge-aware noise reduction, and unsharp masking.
-- Original before/after workspace with split comparison, preview zoom and pan, explicit preview rendering, and full-resolution export.
-- Linear-light 1×–4× interpolation with transparent-edge handling. This is ordinary interpolation, not AI restoration.
-- PNG export preserving alpha and declaring sRGB; adjustable-quality JPEG export for opaque images. Originals and existing output names are protected, and exported copies omit private metadata.
-- A sequential, cancellable 64-photo batch queue with per-file errors and a selected destination folder.
-- Background stable-release checks, a persistent startup opt-out, installed-version display, SHA-256-verified user-initiated portable update installation, and restart controls.
-- Bounds on input/output pixels, file sizes, scratch allocations, worker count, and queued jobs. Generated-data tests exercise orientation, color operations, transparency, cancellation, collisions, cache switching and release metadata selection.
+- Complete English, Russian, French, German, Spanish and Italian UI catalogs covering the photo workspace, adjustments, comparison controls, batch export, Settings, update actions, file-dialog titles, status messages and common processing errors.
+- A discoverable language selector using native language names in Settings → Appearance. Changes apply immediately, including messages already displayed in the status bar and batch queue.
+- Light and Dark theme controls in the same settings section. Both palettes cover panels, controls, text, selections, warnings, comparison labels and the transparency checkerboard.
+- Persistent appearance preferences with migration defaults, preserving existing export options, JPEG quality and the startup update-check opt-out.
 
-## Improved during GUI review
+## Improved
 
-- Replaced the OpenGL host with CPU/GDI rendering and a reactive, retained-bitmap event loop. Bounded diagnostics count actual layout, rasterization and presentation in visible/hidden/restored states.
-- Increased text sizes and contrast, aligned adjustment rows, kept export visible at the minimum window size, and collapsed batch details until needed.
-- Added labeled before/after views and a divider that drags directly on the image, with a regression test to prevent accidental panning.
-- Bounded long update errors and settings scrolling; source preferences migrate from the initial host without changing the old settings file.
-- Added real executable-generated workspace/Settings screenshots, plus an isolated, bounded capture mode for repeatable visual review.
+- Adjustment labels use their own line, and empty-workspace guidance wraps within the canvas, accommodating longer translations at the minimum window size.
+- Parameterized messages preserve paths, version numbers and other supplied values without translating or reinterpreting them.
+- Catalog coverage and placeholder checks, old-settings migration tests, and headless layout/repaint checks cover the supported languages and themes.
 
 ## Download and platform
 
-The intended standalone Windows x64 asset is `PhotoEnhancer-v0.1.1.exe`, with `SHA256SUMS.txt` and license notices. It uses CPU rasterization with Windows GDI presentation and does not bundle models or require a paid service. No architecture suffix is used because only one executable architecture is planned.
+The standalone asset is `PhotoEnhancer-v0.2.0.exe` for Windows x64, accompanied by `SHA256SUMS.txt` and license notices. It uses the existing CPU/GDI renderer. No model weights, cloud processing or paid API are required. Settings and source photos remain outside the update replacement transaction.
 
-## Known limitations before publication
+## Validation and remaining checks
 
-Packaged update installation, clean-machine compatibility, real-monitor color/alpha evaluation, and OS-native interaction/accessibility checks remain pending. Real client-area screenshots and bounded native lifecycle diagnostics are included; they do not certify subjective responsiveness. Damaged or unsupported color profiles, CMYK/YCCK JPEG, high-bit-depth, unsupported unprofiled PNG color declarations, HDR, animated inputs, RAW and other unimplemented formats are refused. Preview detail is approximate and capped at 1280 px; full-resolution exports are the output-quality reference. Extremely large files are rejected rather than streamed. No learned model/backend is installed. The repository/release is not yet published; update failures correctly remain unavailable.
+Automated formatting, dependency-backend checks, generated-fixture tests and Clippy are run before publication. This source-only change does not claim a new native runtime/performance pass. Current repository instructions prohibit GUI launches and screenshots; refreshed v0.2.0 workspace/Settings screenshots, visual review of both palettes, OS-native interactions and installed-update validation remain pending. The README retains explicitly labeled real v0.1.1 captures. Historical evidence is in [VALIDATION.md](VALIDATION.md), and the previous release notes are in [releases/v0.1.1.md](releases/v0.1.1.md).

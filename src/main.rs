@@ -193,15 +193,21 @@ impl PhotoEnhancer {
             .spawn(move || {
                 let selected = match kind {
                     Dialog::Open => rfd::FileDialog::new()
+                        .set_title(tr(lang, "Open photo…"))
                         .add_filter(tr(lang, "Photos"), &["png", "jpg", "jpeg"])
                         .pick_file()
                         .map(Selection::Open),
                     Dialog::AddBatch => rfd::FileDialog::new()
+                        .set_title(tr(lang, "Add photos…"))
                         .add_filter(tr(lang, "Photos"), &["png", "jpg", "jpeg"])
                         .pick_files()
                         .map(Selection::Batch),
-                    Dialog::Folder => rfd::FileDialog::new().pick_folder().map(Selection::Folder),
+                    Dialog::Folder => rfd::FileDialog::new()
+                        .set_title(tr(lang, "Choose output folder…"))
+                        .pick_folder()
+                        .map(Selection::Folder),
                     Dialog::Export(name) => rfd::FileDialog::new()
+                        .set_title(tr(lang, "Export image…"))
                         .set_file_name(name)
                         .save_file()
                         .map(Selection::Export),
@@ -822,7 +828,7 @@ impl PhotoEnhancer {
                 ui.add_space(6.0);ui.separator();theme::section(ui,tr(lang, "Updates"));
                 ui.checkbox(&mut self.preferences.startup_checks,tr(lang, "Check for updates on startup"));
                 ui.label(RichText::new(tr(lang, "Only GitHub is contacted. Your photos stay on this computer.")).small().color(colors.muted));
-                if let Some(error)=&self.preferences_error {ui.colored_label(colors.warning,format!("{}: {error}",tr(lang,"Settings could not be saved")));}
+                if let Some(error)=&self.preferences_error {ui.colored_label(colors.warning,format!("{}: {error}",tr(lang,"Settings could not be loaded or saved")));}
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!self.update_busy && !self.installed,egui::Button::new(tr(lang, "Check for updates"))).clicked() {self.check_updates();}
                     if !self.update_failed {ui.add(egui::Label::new(RichText::new(self.update_status.render(lang)).color(colors.muted)).truncate()).on_hover_text(self.update_status.render(lang));}
@@ -1242,5 +1248,61 @@ mod ui_tests {
             bounds.height() <= screen.height() && bounds.width() <= screen.width(),
             "Settings escaped the viewport: {bounds:?}"
         );
+    }
+
+    #[test]
+    fn every_language_and_theme_keeps_export_visible_and_settings_bounded() {
+        for language in Language::ALL {
+            for theme in [theme::Theme::Light, theme::Theme::Dark] {
+                let ctx = egui::Context::default();
+                let mut app = PhotoEnhancer::new(
+                    ctx.clone(),
+                    Preferences {
+                        startup_checks: false,
+                        language,
+                        theme,
+                        ..Default::default()
+                    },
+                );
+                let mut output = egui::FullOutput::default();
+                for step in 0..6 {
+                    output = frame(&ctx, &mut app, Vec::new(), step as f64 * 0.1);
+                }
+                assert!(
+                    output.shapes.iter().any(|shape| {
+                        if let egui::epaint::Shape::Text(text) = &shape.shape
+                            && text.galley.job.text == tr(language, "Export image…")
+                        {
+                            return shape
+                                .clip_rect
+                                .contains_rect(text.galley.rect.translate(text.pos.to_vec2()));
+                        }
+                        false
+                    }),
+                    "Export clipped: {language:?} / {theme:?}"
+                );
+                assert_eq!(ctx.style().visuals.dark_mode, theme == theme::Theme::Dark);
+                app.settings_open = true;
+                for step in 6..12 {
+                    let _ = frame(&ctx, &mut app, Vec::new(), step as f64 * 0.1);
+                }
+                let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(920.0, 640.0));
+                let bounds = ctx
+                    .memory(|memory| memory.area_rect(egui::Id::new("Settings & updates")))
+                    .unwrap();
+                assert!(
+                    screen.contains_rect(bounds),
+                    "Settings clipped: {language:?} / {theme:?}: {bounds:?}"
+                );
+                for step in 12..32 {
+                    output = frame(&ctx, &mut app, Vec::new(), step as f64 * 0.2);
+                }
+                assert_eq!(
+                    output.viewport_output[&egui::ViewportId::ROOT].repaint_delay,
+                    Duration::MAX,
+                    "Localization/theme left recurring frames: {language:?} / {theme:?}"
+                );
+            }
+        }
     }
 }

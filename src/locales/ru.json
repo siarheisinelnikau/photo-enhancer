@@ -97,7 +97,6 @@
   "Processing": "Обработка",
   "Checking public GitHub releases…": "Проверка общедоступных версий GitHub…",
   "Downloading and verifying update…": "Загрузка и проверка обновления…",
-  "Settings could not be saved": "Не удалось сохранить настройки",
   "Operation failed": "Не удалось выполнить операцию",
   "Adjustment out of range": "Параметр вне допустимого диапазона",
   "Scale must be 1, 2, 3 or 4": "Масштаб должен быть 1, 2, 3 или 4",
@@ -136,5 +135,6 @@
   "Cannot publish output (existing files are protected)": "Не удалось сохранить результат (существующие файлы защищены)",
   "Input has no file name": "Входной файл не имеет имени",
   "Open an image first": "Сначала откройте изображение",
-  "Image worker is busy or unavailable": "Обработчик изображений занят или недоступен"
+  "Image worker is busy or unavailable": "Обработчик изображений занят или недоступен",
+  "Settings could not be loaded or saved": "Не удалось загрузить или сохранить настройки"
 }

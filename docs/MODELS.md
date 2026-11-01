@@ -1,6 +1,6 @@
 # Optional local inference: not installed
 
-Version 0.1.1 bundles deterministic filters only. There are no model weights, inference runtime, GPU provider, automatic model downloads, or remote inference calls. The Settings panel reports learned restoration as unavailable. `LocalEnhancementBackend` is an extension contract, not a working ONNX integration.
+Version 0.2.0 bundles deterministic filters only. There are no model weights, inference runtime, GPU provider, automatic model downloads, or remote inference calls. The Settings panel reports learned restoration as unavailable. `LocalEnhancementBackend` is an extension contract, not a working ONNX integration.
 
 ## Upstream candidate for future review
 

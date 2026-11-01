@@ -84,7 +84,7 @@
   "Queue limited to 64 images. Add the rest after this batch.": "Queue limited to 64 images. Add the rest after this batch.",
   "Waiting": "Waiting",
   "Exporting full-resolution image…": "Exporting full-resolution image…",
-  "Image ready. Adjust controls, then click Render preview.": "Image ready. Adjust controls, then click Render preview.",
+  "Image ready. Adjust controls, then click Render preview.": "Image ready. Adjust controls, then click Update preview.",
   "Preview ready. Export processes the original at full resolution.": "Preview ready. Export processes the original at full resolution.",
   "Preview ready. Export creates a new file and keeps your original untouched.": "Preview ready. Export creates a new file and keeps your original untouched.",
   "Saved {path}": "Saved {path}",
@@ -97,7 +97,6 @@
   "Processing": "Processing",
   "Checking public GitHub releases…": "Checking public GitHub releases…",
   "Downloading and verifying update…": "Downloading and verifying update…",
-  "Settings could not be saved": "Settings could not be saved",
   "Operation failed": "Operation failed",
   "Adjustment out of range": "Adjustment out of range",
   "Scale must be 1, 2, 3 or 4": "Scale must be 1, 2, 3 or 4",
@@ -136,5 +135,6 @@
   "Cannot publish output (existing files are protected)": "Cannot publish output (existing files are protected)",
   "Input has no file name": "Input has no file name",
   "Open an image first": "Open an image first",
-  "Image worker is busy or unavailable": "Image worker is busy or unavailable"
+  "Image worker is busy or unavailable": "Image worker is busy or unavailable",
+  "Settings could not be loaded or saved": "Settings could not be loaded or saved"
 }

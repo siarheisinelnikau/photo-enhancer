@@ -1,3 +1,17 @@
+# v0.2.0 localization and appearance validation
+
+The v0.2.0 changes add six embedded UI catalogs and saved light/dark themes. The production renderer remains `egui_software_backend` CPU rasterization with `softbuffer` Win32 GDI presentation. Source review confirms worker-triggered wakeups, `ControlFlow::Wait` when no useful deadline exists, and no hidden/minimized window rendering. Appearance is applied only on initialization or a theme change; preferences are persisted only when values change.
+
+The localization checks validate catalog parity, nonempty messages, placeholder preservation, and catalog coverage for explicit production lookups. Focused tests cover old JSON defaults, legacy RON migration without overwriting the old file, saved language/theme round trips without enabling startup checks, literal paths containing braces, and translated export/settings layout at 920 × 640 for all six languages in both themes. Existing headless scheduling tests remain in place, with added checks that translated Settings settles without periodic repaint requests.
+
+Verified commands: `cargo fmt --all -- --check`, `python scripts/check_software_backend.py`, `python scripts/check_localization.py`, `cargo test --locked --offline --all-targets` (32 tests passed), and `cargo clippy --locked --offline --all-targets -- -D warnings`. Cargo invocations use two jobs and the repository-local target directory under the shared build gate.
+
+This pass is code-only under the repository AGENTS.md prohibition on GUI launches and screenshots. No v0.2.0 screenshot, native visible/hidden/restore measurement, OS-native dialog interaction, updater installation or subjective responsiveness claim is made. Historical screenshots are retained and labeled as v0.1.1 in README. Updated workspace and Settings images for v0.2.0 are still required when GUI review is authorized.
+
+The sections below are historical evidence for earlier versions; their binaries, hashes and runtime results do not certify v0.2.0.
+
+---
+
 # Validation record
 
 Date: 2026-10-31 (Europe/Minsk). Follow-up GUI work was authorized after the initial code-only implementation. The final review followed the user's later instruction to avoid Computer Use: real application self-captures plus a bounded automatic native-window diagnostic. No real photo library, updater installer, global graphics settings, or unrelated application was operated.

@@ -2,11 +2,11 @@
 
 A local photo workspace for Windows: reduce mild noise, adjust light and color, sharpen edges, and enlarge photos with deterministic interpolation. Written in Rust with an original egui interface. No account, model download, cloud inference, or paid API is required.
 
-**Status: local development build, v0.1.1.** Windows x64, CPU-rendered interface, generated-fixture tests, and bounded visual/runtime diagnostics. Real-monitor color, OS-native interactions, and packaged updater installation still require manual validation. The planned [canonical repository](https://github.com/siarheisinelnikau/photo-enhancer) and releases have not been published in this development session.
+**Version 0.2.0.** Windows x64 with a CPU-rendered interface. UI languages: English, Russian, French, German, Spanish and Italian. Light and dark themes are included. Real-monitor color, OS-native interactions, and packaged updater installation still require manual validation. See the [canonical repository](https://github.com/siarheisinelnikau/photo-enhancer) for release availability.
 
 ## Screenshots
 
-Real client-area captures from the executable, using the production UI and CPU rasterizer. The landscape is an original generated test fixture, processed by the application's actual enhancement engine. These captures exclude native window chrome and system dialogs.
+Historical v0.1.1 client-area captures from the executable, using the production UI and CPU rasterizer. The landscape is an original generated test fixture, processed by the application's actual enhancement engine. These captures exclude native window chrome and system dialogs. Updated v0.2.0 workspace and Settings screenshots, including the new language and theme controls, are pending because the current repository instructions prohibit GUI launches and screenshots. The images below document the preceding dark interface; they are not evidence of the new light theme or translated layout.
 
 ![PhotoEnhancer workspace with labeled before and after comparison, adjustment controls, and export action](docs/screenshots/workspace.png)
 
@@ -18,6 +18,7 @@ Settings in an isolated capture profile. Startup checks are disabled for capture
 
 ## What works in this version
 
+- Change UI language instantly between English, Русский, Français, Deutsch, Español and Italiano in **Settings → Appearance → Language**. Choose **Light** or **Dark** beside **Theme**; both preferences persist across restarts. Existing settings retain their export options and startup-check opt-out.
 - Open PNG/JPEG, automatically convert embedded RGB/grayscale ICC profiles to sRGB, apply EXIF rotation/mirroring, and compare before/after by dragging the labeled divider, with preview zoom and pan.
 - Adjust exposure, saturation, and warmth in linear sRGB. Apply a fixed 3×3 edge-aware denoiser and an unsharp mask.
 - Enlarge 1×–4× with bilinear interpolation in linear light and premultiplied alpha. This does **not** recover true lost detail or perform learned restoration.
@@ -40,13 +41,13 @@ Preview images have a maximum 1280-pixel edge. Detail filters run after preview 
 2. Click **Update preview**, then use Compare / Before / After and drag the divider. A notice marks previews that no longer match the controls.
 3. Choose PNG or JPEG and click **Export image…**. The extension follows the selected format. Existing names are protected even if a save dialog permits selecting them.
 4. For batches, expand **Batch export**, add photos, choose an output folder, set adjustments/format, then **Export batch**. Files use `original-stem-enhanced.png` or `.jpg`. Duplicate stems produce per-file collision errors; completed items remain saved when cancelling.
-5. Open **Settings** for update controls and the local model capability status.
+5. Open **Settings → Appearance** to choose your language and light/dark theme. Changes apply immediately and are saved automatically. The same Settings window contains update controls and the local model capability status.
 
 Settings are stored in the per-user `PhotoEnhancer/data/preferences.json` application-data file, independently of the portable executable. The former `app.ron` preferences are read when upgrading from the initial OpenGL host; the legacy file is preserved. Photos are never uploaded. Only startup/manual update checks and user-initiated downloads contact GitHub. Disable **Check for updates on startup** to prevent startup update requests. Startup failures stay in Settings without pop-up dialogs.
 
 ## Shared updater dependency
 
-The reusable release discovery, verified download, cancellation and Windows replacement logic now live in the sibling `rust-auto-updator` workspace. `src/updates.rs` contains only PhotoEnhancer configuration and helper routing. Check out that workspace alongside this repository as `../rust-auto-updator`; CI and source-only builds need the same layout. The dependency is local and has not been published by this change.
+The reusable release discovery, verified download, cancellation and Windows replacement logic now live in the sibling `rust-auto-updator` workspace. `src/updates.rs` contains only PhotoEnhancer configuration and helper routing. Check out that workspace alongside this repository as `../rust-auto-updator`; CI and source-only builds need the same layout. The build uses a local path dependency; CI provisions the pinned shared source automatically.
 
 Startup checking remains asynchronous and optional; manual checking always remains available. Installation starts only after the user downloads a verified release and selects **Install and restart**. Settings and photos stay outside the replacement transaction. Historical releases with only a GitHub SHA-256 digest remain accepted; an available checksum file is also verified. Cleanup waits until the replacement renders its first successful frame.
 
@@ -65,13 +66,13 @@ Use Windows x64 with the Rust MSVC toolchain, the Windows SDK and C++ linker alr
 Drop `-Offline` on a development machine that needs to resolve the locked dependencies. Project Cargo configuration limits builds to two jobs and uses the local `target/`. The package script produces:
 
 ```text
-dist/PhotoEnhancer-v0.1.1.exe
+dist/PhotoEnhancer-v0.2.0.exe
 dist/SHA256SUMS.txt
 dist/LICENSE
 dist/THIRD_PARTY_NOTICES.txt
 ```
 
-The standalone executable requires no adjacent model or runtime files. Keep the license notices when redistributing it. No release, tag, push, or upload is performed by these scripts or by the checks workflow.
+The standalone executable requires no adjacent model or runtime files. Keep the license notices when redistributing it. The package and check scripts prepare local artifacts without launching the application. Release publication is handled separately by the repository release workflow.
 
 For dependency changes, regenerate notices with `python scripts/generate_notices.py --offline`; review both the dependency graph and license texts before publication.
 
@@ -81,9 +82,9 @@ No computer-use automation is required. The developer-only modes parse before no
 
 ```powershell
 python scripts/generate_gui_fixtures.py
-python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.1.exe
-python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.1.1.exe --diagnose
-python scripts/verify_windows_icon.py dist/PhotoEnhancer-v0.1.1.exe
+python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.2.0.exe
+python scripts/review_ui.py --exe dist/PhotoEnhancer-v0.2.0.exe --diagnose
+python scripts/verify_windows_icon.py dist/PhotoEnhancer-v0.2.0.exe
 ```
 
 The optional fixture/review scripts use Python with Pillow. Self-capture renders 16 bounded frames, writes PNG plus a manifest, then exits; it shares the production UI and rasterizer. Each invocation has internal and external deadlines. Review includes the standard and minimum-size workspace, settings at 125% scale, empty state, and a real decoding-error state. Inspect the resulting PNGs; exit success alone is not a visual review.

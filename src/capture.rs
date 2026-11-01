@@ -155,7 +155,8 @@ pub fn save(options: Options) -> Result<()> {
         app.message = engine::load(path, &AtomicBool::new(false))
             .err()
             .context("Error fixture unexpectedly decoded")?
-            .to_string();
+            .to_string()
+            .into();
         app.message_error = true;
     }
     let width = (options.width as f32 * options.scale).round() as u32;

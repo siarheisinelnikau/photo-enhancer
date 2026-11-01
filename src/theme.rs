@@ -100,10 +100,61 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     style.visuals.widgets.active.bg_fill = colors.accent_fill;
     style.visuals.widgets.active.weak_bg_fill = colors.accent_fill;
     style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, colors.text);
+    // Select the saved mode before configuring its style. Otherwise egui keeps
+    // following Windows and can switch to an unconfigured opposite style.
+    ctx.set_theme(match theme {
+        Theme::Light => egui::Theme::Light,
+        Theme::Dark => egui::Theme::Dark,
+    });
     ctx.set_style(style);
 }
 
 pub fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(5.0);
     ui.label(egui::RichText::new(label).size(16.0).strong());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_theme_survives_system_theme_changes() {
+        for saved in [Theme::Light, Theme::Dark] {
+            let ctx = egui::Context::default();
+            let expected = match saved {
+                Theme::Light => egui::Theme::Light,
+                Theme::Dark => egui::Theme::Dark,
+            };
+            let opposite = match expected {
+                egui::Theme::Light => egui::Theme::Dark,
+                egui::Theme::Dark => egui::Theme::Light,
+            };
+            let _ = ctx.run(
+                egui::RawInput {
+                    system_theme: Some(expected),
+                    ..Default::default()
+                },
+                |_| {},
+            );
+            apply(&ctx, saved);
+            for system in [opposite, expected, opposite] {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        system_theme: Some(system),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        assert_eq!(ctx.theme(), expected);
+                        assert_eq!(ctx.style().visuals.dark_mode, saved == Theme::Dark);
+                        assert_eq!(ctx.style().visuals.panel_fill, saved.palette().background);
+                        assert_eq!(
+                            ctx.style().visuals.override_text_color,
+                            Some(saved.palette().text)
+                        );
+                    },
+                );
+            }
+        }
+    }
 }

@@ -6,7 +6,11 @@ Push-Location -LiteralPath $projectRoot
 try {
     & cargo fmt --all -- --check
     if ($LASTEXITCODE -ne 0) { throw 'Formatting failed.' }
-    & python (Join-Path $PSScriptRoot "check_software_backend.py")
+    & python -m unittest discover -s (Join-Path $PSScriptRoot 'tests') -p 'test_*.py'
+    if ($LASTEXITCODE -ne 0) { throw 'Backend checker regression tests failed.' }
+    $backendArgs = @((Join-Path $PSScriptRoot "check_software_backend.py"))
+    if ($Offline) { $backendArgs += '--offline' }
+    & python @backendArgs
     if ($LASTEXITCODE -ne 0) { throw "Software backend dependency check failed." }
     & python (Join-Path $PSScriptRoot "check_localization.py")
     if ($LASTEXITCODE -ne 0) { throw "Localization catalog check failed." }

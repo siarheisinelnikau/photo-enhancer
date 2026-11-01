@@ -97,7 +97,6 @@
   "Processing": "Traitement",
   "Checking public GitHub releases…": "Recherche des versions publiques GitHub…",
   "Downloading and verifying update…": "Téléchargement et vérification de la mise à jour…",
-  "Settings could not be saved": "Impossible d’enregistrer les paramètres",
   "Operation failed": "Échec de l’opération",
   "Adjustment out of range": "Réglage hors limites",
   "Scale must be 1, 2, 3 or 4": "Le facteur doit être 1, 2, 3 ou 4",
@@ -136,5 +135,6 @@
   "Cannot publish output (existing files are protected)": "Impossible d’enregistrer la sortie (fichiers existants protégés)",
   "Input has no file name": "L’entrée n’a pas de nom de fichier",
   "Open an image first": "Ouvrez d’abord une image",
-  "Image worker is busy or unavailable": "Le traitement d’image est occupé ou indisponible"
+  "Image worker is busy or unavailable": "Le traitement d’image est occupé ou indisponible",
+  "Settings could not be loaded or saved": "Impossible de charger ou d’enregistrer les paramètres"
 }

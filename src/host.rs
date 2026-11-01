@@ -350,7 +350,12 @@ pub(crate) fn rasterize(
     output: egui::FullOutput,
 ) {
     let shapes = ctx.tessellate(output.shapes, output.pixels_per_point);
-    pixels.fill(0x0010151a);
+    let background = ctx.style().visuals.panel_fill;
+    pixels.fill(
+        (u32::from(background.r()) << 16)
+            | (u32::from(background.g()) << 8)
+            | u32::from(background.b()),
+    );
     renderer.render(
         &mut BufferMutRef::new(
             bytemuck::cast_slice_mut(pixels),

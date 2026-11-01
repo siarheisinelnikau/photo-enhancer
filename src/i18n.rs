@@ -104,12 +104,16 @@ impl Message {
     }
     pub fn render(&self, language: Language) -> String {
         if self.diagnostic {
-            return self
-                .key
-                .split(": ")
-                .map(|part| tr(language, part))
-                .collect::<Vec<_>>()
-                .join(": ");
+            let (summary, details) = self.key.split_once(": ").unwrap_or((&self.key, ""));
+            let translated = tr(language, summary);
+            if translated == summary && !catalogs()[0].contains_key(summary) {
+                return std::format!("{}: {}", tr(language, "Operation failed"), self.key);
+            }
+            return if details.is_empty() {
+                translated.into()
+            } else {
+                std::format!("{translated}: {details}")
+            };
         }
         format(
             language,

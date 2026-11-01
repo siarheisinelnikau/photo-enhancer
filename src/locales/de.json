@@ -97,7 +97,6 @@
   "Processing": "Verarbeitung",
   "Checking public GitHub releases…": "Öffentliche GitHub-Versionen werden geprüft…",
   "Downloading and verifying update…": "Update wird heruntergeladen und geprüft…",
-  "Settings could not be saved": "Einstellungen konnten nicht gespeichert werden",
   "Operation failed": "Vorgang fehlgeschlagen",
   "Adjustment out of range": "Anpassung außerhalb des Bereichs",
   "Scale must be 1, 2, 3 or 4": "Skalierung muss 1, 2, 3 oder 4 sein",
@@ -136,5 +135,6 @@
   "Cannot publish output (existing files are protected)": "Ausgabe kann nicht gespeichert werden (vorhandene Dateien geschützt)",
   "Input has no file name": "Eingabe hat keinen Dateinamen",
   "Open an image first": "Zuerst ein Bild öffnen",
-  "Image worker is busy or unavailable": "Bildverarbeitung ausgelastet oder nicht verfügbar"
+  "Image worker is busy or unavailable": "Bildverarbeitung ausgelastet oder nicht verfügbar",
+  "Settings could not be loaded or saved": "Einstellungen konnten nicht geladen oder gespeichert werden"
 }

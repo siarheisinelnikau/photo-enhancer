@@ -8,6 +8,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Formatting failed.' }
     & python (Join-Path $PSScriptRoot "check_software_backend.py")
     if ($LASTEXITCODE -ne 0) { throw "Software backend dependency check failed." }
+    & python (Join-Path $PSScriptRoot "check_localization.py")
+    if ($LASTEXITCODE -ne 0) { throw "Localization catalog check failed." }
     $cargoMode = @('--locked', '--jobs', '2', '--target-dir', (Join-Path $projectRoot 'target'))
     if ($Offline) { $cargoMode += '--offline' }
     & cargo test @cargoMode

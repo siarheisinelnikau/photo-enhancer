@@ -11,6 +11,7 @@ PhotoEnhancer now offers a translated interface and a choice of light or dark ap
 
 ## Improved
 
+- A selected Light or Dark theme remains selected when Windows changes its system appearance; the application no longer switches to an unconfigured opposite style.
 - Adjustment labels use their own line, and empty-workspace guidance wraps within the canvas, accommodating longer translations at the minimum window size.
 - Parameterized messages preserve paths, version numbers and other supplied values without translating or reinterpreting them.
 - Catalog coverage and placeholder checks, old-settings migration tests, and headless layout/repaint checks cover the supported languages and themes.

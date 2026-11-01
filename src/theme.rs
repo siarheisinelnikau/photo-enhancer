@@ -85,21 +85,21 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
     style.visuals.window_fill = colors.surface;
     style.visuals.extreme_bg_color = colors.background;
     style.visuals.faint_bg_color = colors.surface;
-    style.visuals.window_stroke = egui::Stroke::new(1.0, colors.border);
+    style.visuals.window_stroke = egui::Stroke::new(1.0_f32, colors.border);
     style.visuals.selection.bg_fill = colors.accent_fill;
-    style.visuals.selection.stroke = egui::Stroke::new(1.0, colors.text);
+    style.visuals.selection.stroke = egui::Stroke::new(1.0_f32, colors.text);
     style.visuals.hyperlink_color = colors.accent;
-    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, colors.border);
-    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, colors.muted);
+    style.visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0_f32, colors.border);
+    style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0_f32, colors.muted);
     style.visuals.widgets.inactive.bg_fill = colors.control;
     style.visuals.widgets.inactive.weak_bg_fill = colors.control;
-    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, colors.text);
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, colors.text);
     style.visuals.widgets.hovered.bg_fill = colors.hover;
     style.visuals.widgets.hovered.weak_bg_fill = colors.hover;
-    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, colors.text);
+    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, colors.text);
     style.visuals.widgets.active.bg_fill = colors.accent_fill;
     style.visuals.widgets.active.weak_bg_fill = colors.accent_fill;
-    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, colors.text);
+    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, colors.text);
     // Select the saved mode before configuring its style. Otherwise egui keeps
     // following Windows and can switch to an unconfigured opposite style.
     ctx.set_theme(match theme {

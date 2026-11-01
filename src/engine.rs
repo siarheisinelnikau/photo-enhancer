@@ -256,7 +256,10 @@ fn convert_profile_to_srgb(
             .transform(src, dst)
             .context("The photo's color conversion failed")?;
         // Preserve the original alpha exactly, independently of the CMS executor.
-        for (source, target) in src.chunks_exact(channels).zip(dst.chunks_exact_mut(4)) {
+        for (source, target) in src
+            .chunks_exact(channels)
+            .zip(dst.as_chunks_mut::<4>().0.iter_mut())
+        {
             target[3] = alpha.map_or(255, |index| source[index]);
         }
     }

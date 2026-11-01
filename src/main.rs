@@ -882,6 +882,10 @@ impl PhotoEnhancer {
                 });
             });
         self.settings_open = open;
+        if self.preferences.language != lang {
+            // One follow-up frame refreshes labels already painted before Settings.
+            ctx.request_repaint();
+        }
     }
 }
 

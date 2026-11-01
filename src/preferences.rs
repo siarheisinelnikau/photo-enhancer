@@ -69,6 +69,7 @@ mod tests {
             startup_checks: false,
             format: crate::OutputFormat::Jpeg,
             quality: 87,
+            ..Default::default()
         };
         let old = ron::to_string(&HashMap::from([(
             "preferences",

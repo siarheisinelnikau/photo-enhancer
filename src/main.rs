@@ -1,10 +1,12 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod capture;
 mod host;
+mod i18n;
 mod preferences;
 mod theme;
 
 use egui::{Color32, RichText, Vec2};
+use i18n::{Language, Message, tr};
 use photo_enhancer::{
     engine::{self, Adjustments, OutputFormat},
     inference::{Capability, LocalEnhancementBackend, UnavailableBackend},
@@ -43,6 +45,8 @@ struct Preferences {
     startup_checks: bool,
     format: OutputFormat,
     quality: u8,
+    language: Language,
+    theme: theme::Theme,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -50,6 +54,8 @@ impl Default for Preferences {
             startup_checks: true,
             format: OutputFormat::Png,
             quality: 94,
+            language: Language::English,
+            theme: theme::Theme::Dark,
         }
     }
 }
@@ -75,7 +81,7 @@ enum Selection {
 }
 struct QueueItem {
     path: PathBuf,
-    state: String,
+    state: Message,
 }
 
 struct PhotoEnhancer {
@@ -95,7 +101,7 @@ struct PhotoEnhancer {
     zoom: f32,
     pan: Vec2,
     busy: bool,
-    message: String,
+    message: Message,
     message_error: bool,
     settings_open: bool,
     dialog: Option<Receiver<Selection>>,
@@ -106,7 +112,7 @@ struct PhotoEnhancer {
     batch_open: bool,
     update_busy: bool,
     installing: bool,
-    update_status: String,
+    update_status: Message,
     update_failed: bool,
     available: Option<updates::Available>,
     installed: bool,
@@ -115,7 +121,7 @@ struct PhotoEnhancer {
 }
 impl PhotoEnhancer {
     fn new(ctx: egui::Context, preferences: Preferences) -> Self {
-        theme::apply(&ctx);
+        theme::apply(&ctx, preferences.theme);
         let image_ctx = ctx.clone();
         let update_ctx = ctx.clone();
         let worker = Worker::new(move || image_ctx.request_repaint());
@@ -138,7 +144,9 @@ impl PhotoEnhancer {
             zoom: 1.0,
             pan: Vec2::ZERO,
             busy: false,
-            message: "Open a PNG or JPEG to begin. Processing stays on this computer.".into(),
+            message: Message::key(
+                "Open a PNG or JPEG to begin. Processing stays on this computer.",
+            ),
             message_error: false,
             settings_open: false,
             dialog: None,
@@ -149,7 +157,7 @@ impl PhotoEnhancer {
             batch_open: false,
             update_busy: false,
             installing: false,
-            update_status: "Not checked".into(),
+            update_status: Message::key("Not checked"),
             update_failed: false,
             available: None,
             installed: false,
@@ -168,7 +176,7 @@ impl PhotoEnhancer {
                 self.message_error = false;
             }
             Err(e) => {
-                self.message = e.to_string();
+                self.message = e.to_string().into();
                 self.message_error = true;
             }
         }
@@ -177,6 +185,7 @@ impl PhotoEnhancer {
         if self.dialog.is_some() {
             return;
         }
+        let lang = self.preferences.language;
         let (tx, rx) = mpsc::sync_channel(1);
         let ctx = ctx.clone();
         std::thread::Builder::new()
@@ -184,11 +193,11 @@ impl PhotoEnhancer {
             .spawn(move || {
                 let selected = match kind {
                     Dialog::Open => rfd::FileDialog::new()
-                        .add_filter("Photos", &["png", "jpg", "jpeg"])
+                        .add_filter(tr(lang, "Photos"), &["png", "jpg", "jpeg"])
                         .pick_file()
                         .map(Selection::Open),
                     Dialog::AddBatch => rfd::FileDialog::new()
-                        .add_filter("Photos", &["png", "jpg", "jpeg"])
+                        .add_filter(tr(lang, "Photos"), &["png", "jpg", "jpeg"])
                         .pick_files()
                         .map(Selection::Batch),
                     Dialog::Folder => rfd::FileDialog::new().pick_folder().map(Selection::Folder),
@@ -219,21 +228,22 @@ impl PhotoEnhancer {
             self.dialog = None;
             match selection {
                 Selection::Open(path) => {
-                    self.message = "Decoding image…".into();
+                    self.message = Message::key("Decoding image…");
                     self.command(worker::Command::Open(path));
                 }
                 Selection::Batch(paths) => {
                     self.batch_open = true;
                     for path in paths {
                         if self.queue.len() == 64 {
-                            self.message =
-                                "Queue limited to 64 images. Add the rest after this batch.".into();
+                            self.message = Message::key(
+                                "Queue limited to 64 images. Add the rest after this batch.",
+                            );
                             break;
                         }
                         if !self.queue.iter().any(|q| q.path == path) {
                             self.queue.push(QueueItem {
                                 path,
-                                state: "Waiting".into(),
+                                state: Message::key("Waiting"),
                             });
                         }
                     }
@@ -242,7 +252,7 @@ impl PhotoEnhancer {
                 Selection::Export(mut path) => {
                     path.set_extension(self.preferences.format.extension());
                     if let Some(input) = self.current.clone() {
-                        self.message = "Exporting full-resolution image…".into();
+                        self.message = Message::key("Exporting full-resolution image…");
                         self.command(worker::Command::Export {
                             input,
                             output: path,
@@ -269,30 +279,31 @@ impl PhotoEnhancer {
                     self.zoom = 1.0;
                     self.pan = Vec2::ZERO;
                     self.message =
-                        "Image ready. Adjust controls, then click Render preview.".into();
+                        Message::key("Image ready. Adjust controls, then click Render preview.");
                 }
                 worker::Event::Previewed(image) => {
                     self.after = Some(Self::texture(ctx, "after", &image));
                     self.preview_settings = self.pending_preview.take();
-                    self.message =
-                        "Preview ready. Export processes the original at full resolution.".into();
+                    self.message = Message::key(
+                        "Preview ready. Export processes the original at full resolution.",
+                    );
                 }
                 worker::Event::Exported(path) => {
-                    self.message = format!("Saved {}", path.display());
+                    self.message = Message::with("Saved {path}", "path", path.display());
                     if self.batch_running && !self.worker.cancel.load(Ordering::Relaxed) {
-                        self.queue[self.batch_index].state = "Saved".into();
+                        self.queue[self.batch_index].state = Message::key("Saved");
                         continue_batch = true;
                     } else if self.batch_running {
-                        self.queue[self.batch_index].state = "Saved; batch stopped".into();
+                        self.queue[self.batch_index].state = Message::key("Saved; batch stopped");
                         self.batch_running = false;
                     }
                 }
                 worker::Event::Failed(error) => {
                     self.message_error = true;
                     self.pending_preview = None;
-                    self.message = error.clone();
+                    self.message = error.clone().into();
                     if self.batch_running {
-                        self.queue[self.batch_index].state = error;
+                        self.queue[self.batch_index].state = error.into();
                         if self.worker.cancel.load(Ordering::Relaxed) {
                             self.batch_running = false;
                         } else {
@@ -312,15 +323,19 @@ impl PhotoEnhancer {
                     self.update_busy = false;
                     match result {
                         Ok(Some(update)) => {
-                            self.update_status = format!("Version {} is available", update.version);
+                            self.update_status = Message::with(
+                                "Version {version} is available",
+                                "version",
+                                &update.version,
+                            );
                             self.available = Some(update);
                         }
                         Ok(None) => {
-                            self.update_status = "You are up to date".into();
+                            self.update_status = Message::key("You are up to date");
                             self.available = None;
                         }
                         Err(error) => {
-                            self.update_status = error;
+                            self.update_status = error.into();
                             self.update_failed = true;
                         }
                     }
@@ -335,12 +350,12 @@ impl PhotoEnhancer {
                         Ok(prepared) => {
                             self.prepared_update = Some(prepared);
                             self.installed = true;
-                            self.update_status =
-                                "Download verified. Install and restart when your work is saved."
-                                    .into();
+                            self.update_status = Message::key(
+                                "Download verified. Install and restart when your work is saved.",
+                            );
                         }
                         Err(error) => {
-                            self.update_status = error;
+                            self.update_status = error.into();
                             self.update_failed = true;
                         }
                     }
@@ -352,7 +367,7 @@ impl PhotoEnhancer {
         if self.batch_index >= self.queue.len() {
             self.batch_running = false;
             self.message =
-                "Batch finished. Review each queue item for saved files or errors.".into();
+                Message::key("Batch finished. Review each queue item for saved files or errors.");
             return;
         }
         let input = self.queue[self.batch_index].path.clone();
@@ -363,7 +378,7 @@ impl PhotoEnhancer {
         );
         match output {
             Ok(output) => {
-                self.queue[self.batch_index].state = "Processing".into();
+                self.queue[self.batch_index].state = Message::key("Processing");
                 self.command(worker::Command::Export {
                     input,
                     output,
@@ -376,7 +391,7 @@ impl PhotoEnhancer {
                 }
             }
             Err(e) => {
-                self.queue[self.batch_index].state = e.to_string();
+                self.queue[self.batch_index].state = e.to_string().into();
                 self.batch_running = false;
             }
         }
@@ -386,11 +401,11 @@ impl PhotoEnhancer {
             Ok(()) => {
                 self.update_failed = false;
                 self.update_busy = true;
-                self.update_status = "Checking public GitHub releases…".into();
+                self.update_status = Message::key("Checking public GitHub releases…");
             }
             Err(error) => {
                 self.update_failed = true;
-                self.update_status = error;
+                self.update_status = error.into();
             }
         }
     }
@@ -401,11 +416,11 @@ impl PhotoEnhancer {
                 self.installing = true;
                 self.update_failed = false;
                 self.update_progress = 0.0;
-                self.update_status = "Downloading and verifying update…".into();
+                self.update_status = Message::key("Downloading and verifying update…");
             }
             Err(error) => {
                 self.update_failed = true;
-                self.update_status = error;
+                self.update_status = error.into();
             }
         }
     }
@@ -415,11 +430,8 @@ impl PhotoEnhancer {
         value: &mut f32,
         range: std::ops::RangeInclusive<f32>,
     ) {
+        ui.label(label);
         ui.horizontal(|ui| {
-            ui.add_sized(
-                [82.0, 30.0],
-                egui::Label::new(label).halign(egui::Align::Min),
-            );
             ui.add(egui::Slider::new(value, range.clone()).show_value(false));
             ui.add(
                 egui::DragValue::new(value)
@@ -430,41 +442,43 @@ impl PhotoEnhancer {
         });
     }
     fn controls(&mut self, ui: &mut egui::Ui) {
+        let lang = self.preferences.language;
+        let colors = self.preferences.theme.palette();
         let enabled = !self.busy && !self.installing && self.dialog.is_none();
         let form_height = (ui.available_height() - 130.0).max(150.0);
         egui::ScrollArea::vertical().id_salt("adjustment_form").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded).max_height(form_height).auto_shrink([false,false]).show(ui,|ui| {
-            ui.heading("Adjust");
+            ui.heading(tr(lang, "Adjust"));
             ui.add_enabled_ui(enabled,|ui| {
-                theme::section(ui,"Light & color");
-                Self::adjustment(ui,"Exposure",&mut self.settings.exposure,-3.0..=3.0);
-                Self::adjustment(ui,"Saturation",&mut self.settings.saturation,0.0..=2.0);
-                Self::adjustment(ui,"Warmth",&mut self.settings.warmth,-1.0..=1.0);
+                theme::section(ui,tr(lang, "Light & color"));
+                Self::adjustment(ui,tr(lang, "Exposure"),&mut self.settings.exposure,-3.0..=3.0);
+                Self::adjustment(ui,tr(lang, "Saturation"),&mut self.settings.saturation,0.0..=2.0);
+                Self::adjustment(ui,tr(lang, "Warmth"),&mut self.settings.warmth,-1.0..=1.0);
                 ui.add_space(5.0);ui.separator();
-                theme::section(ui,"Detail");
-                Self::adjustment(ui,"Denoise",&mut self.settings.denoise,0.0..=1.0);
-                Self::adjustment(ui,"Sharpen",&mut self.settings.sharpen,0.0..=2.0);
+                theme::section(ui,tr(lang, "Detail"));
+                Self::adjustment(ui,tr(lang, "Denoise"),&mut self.settings.denoise,0.0..=1.0);
+                Self::adjustment(ui,tr(lang, "Sharpen"),&mut self.settings.sharpen,0.0..=2.0);
                 ui.add_space(5.0);ui.separator();
-                theme::section(ui,"Output");
-                egui::ComboBox::from_label("Size").selected_text(format!("{}x enlargement",self.settings.scale)).show_ui(ui,|ui| {
+                theme::section(ui,tr(lang, "Output"));
+                egui::ComboBox::from_label(tr(lang, "Size")).selected_text(i18n::format(lang,"{scale}x enlargement",&[("scale",self.settings.scale.to_string())])).show_ui(ui,|ui| {
                     for scale in 1..=4 {ui.selectable_value(&mut self.settings.scale,scale,format!("{scale}x"));}
-                }).response.on_hover_text("Uses linear-light interpolation. Enlarging does not recover true lost detail.");
+                }).response.on_hover_text(tr(lang, "Uses linear-light interpolation. Enlarging does not recover true lost detail."));
                 if let Some((w,h))=self.size {match engine::dimensions(w,h,self.settings.scale) {
-                    Ok((ow,oh))=>{ui.label(RichText::new(format!("{ow} x {oh} pixels")).color(theme::MUTED));}
-                    Err(error)=>{ui.colored_label(theme::WARNING,error.to_string());}
+                    Ok((ow,oh))=>{ui.label(RichText::new(i18n::format(lang,"{width} x {height} pixels",&[("width",ow.to_string()),("height",oh.to_string())])).color(colors.muted));}
+                    Err(error)=>{ui.colored_label(colors.warning,Message::from(error.to_string()).render(lang));}
                 }}
-                egui::ComboBox::from_label("Format").selected_text(match self.preferences.format {OutputFormat::Png=>"PNG · lossless",OutputFormat::Jpeg=>"JPEG"}).show_ui(ui,|ui| {
-                    ui.selectable_value(&mut self.preferences.format,OutputFormat::Png,"PNG · lossless / transparency");
-                    ui.selectable_value(&mut self.preferences.format,OutputFormat::Jpeg,"JPEG · opaque images");
+                egui::ComboBox::from_label(tr(lang, "Format")).selected_text(match self.preferences.format {OutputFormat::Png=>tr(lang, "PNG · lossless"),OutputFormat::Jpeg=>"JPEG"}).show_ui(ui,|ui| {
+                    ui.selectable_value(&mut self.preferences.format,OutputFormat::Png,tr(lang, "PNG · lossless / transparency"));
+                    ui.selectable_value(&mut self.preferences.format,OutputFormat::Jpeg,tr(lang, "JPEG · opaque images"));
                 });
-                if self.preferences.format==OutputFormat::Jpeg {ui.add(egui::Slider::new(&mut self.preferences.quality,1..=100).text("Quality"));}
+                if self.preferences.format==OutputFormat::Jpeg {ui.add(egui::Slider::new(&mut self.preferences.quality,1..=100).text(tr(lang, "Quality")));}
                 ui.add_space(8.0);
                 let valid_size=self.size.is_some_and(|(w,h)|engine::dimensions(w,h,self.settings.scale).is_ok());
-                if ui.add_enabled(valid_size,egui::Button::new("Update preview").min_size(egui::vec2(ui.available_width(),34.0))).clicked() {
+                if ui.add_enabled(valid_size,egui::Button::new(tr(lang, "Update preview")).min_size(egui::vec2(ui.available_width(),34.0))).clicked() {
                     let settings=self.settings.clone();self.pending_preview=Some(settings.clone());
-                    self.command(worker::Command::Preview {input:self.current.clone().unwrap(),settings});self.message="Updating preview…".into();
+                    self.command(worker::Command::Preview {input:self.current.clone().unwrap(),settings});self.message=Message::key("Updating preview…");
                 }
-                if self.after.is_some() && self.preview_settings.as_ref()!=Some(&self.settings) {ui.colored_label(theme::WARNING,"Adjustments changed. Update the preview.");}
-                if ui.button("Reset adjustments").clicked() {self.settings=Adjustments::default();}
+                if self.after.is_some() && self.preview_settings.as_ref()!=Some(&self.settings) {ui.colored_label(colors.warning,tr(lang, "Adjustments changed. Update the preview."));}
+                if ui.button(tr(lang, "Reset adjustments")).clicked() {self.settings=Adjustments::default();}
             });
         });
         ui.separator();
@@ -475,10 +489,10 @@ impl PhotoEnhancer {
                 )
                 .show_percentage(),
             );
-            if ui.button("Cancel processing").clicked() {
+            if ui.button(tr(lang, "Cancel processing")).clicked() {
                 self.worker.cancel.store(true, Ordering::Relaxed);
                 self.message =
-                    "Cancellation requested; waiting for the current codec or row…".into();
+                    Message::key("Cancellation requested; waiting for the current codec or row…");
             }
         } else {
             let valid_size = self
@@ -493,14 +507,14 @@ impl PhotoEnhancer {
                         self.preferences.format.extension().to_uppercase()
                     ))
                     .small()
-                    .color(theme::MUTED),
+                    .color(colors.muted),
                 );
             }
             if ui
                 .add_enabled(
                     enabled && valid_size,
-                    egui::Button::new(RichText::new("Export image…").strong())
-                        .fill(theme::ACCENT_DARK)
+                    egui::Button::new(RichText::new(tr(lang, "Export image…")).strong())
+                        .fill(colors.accent_fill)
                         .min_size(egui::vec2(ui.available_width(), 38.0)),
                 )
                 .clicked()
@@ -516,38 +530,46 @@ impl PhotoEnhancer {
                 self.dialog(Dialog::Export(filename), ui.ctx());
             }
             ui.label(
-                RichText::new("Creates a new file. Your original stays untouched.")
-                    .small()
-                    .color(theme::MUTED),
+                RichText::new(tr(
+                    lang,
+                    "Creates a new file. Your original stays untouched.",
+                ))
+                .small()
+                .color(colors.muted),
             );
         }
     }
     fn canvas(&mut self, ui: &mut egui::Ui) {
+        let lang = self.preferences.language;
+        let colors = self.preferences.theme.palette();
         ui.horizontal_wrapped(|ui| {
             let has_preview = self.after.is_some();
             ui.add_enabled_ui(has_preview, |ui| {
-                ui.selectable_value(&mut self.compare, Compare::Split, "Compare");
+                ui.selectable_value(&mut self.compare, Compare::Split, tr(lang, "Compare"));
             });
-            ui.selectable_value(&mut self.compare, Compare::Before, "Before");
+            ui.selectable_value(&mut self.compare, Compare::Before, tr(lang, "Before"));
             ui.add_enabled_ui(has_preview, |ui| {
-                ui.selectable_value(&mut self.compare, Compare::After, "After");
+                ui.selectable_value(&mut self.compare, Compare::After, tr(lang, "After"));
             });
             ui.separator();
-            if ui.button("Fit").clicked() {
+            if ui.button(tr(lang, "Fit")).clicked() {
                 self.zoom = 1.0;
                 self.pan = Vec2::ZERO;
             }
             ui.add(
                 egui::Slider::new(&mut self.zoom, 0.25..=4.0)
-                    .text("Zoom")
+                    .text(tr(lang, "Zoom"))
                     .fixed_decimals(2),
             );
         });
         ui.add_space(5.0);
         ui.label(
-            RichText::new("Drag to pan · scroll to zoom · drag the divider to compare")
-                .small()
-                .color(theme::MUTED),
+            RichText::new(tr(
+                lang,
+                "Drag to pan · scroll to zoom · drag the divider to compare",
+            ))
+            .small()
+            .color(colors.muted),
         );
         ui.add_space(5.0);
         let (rect, response) = ui.allocate_exact_size(
@@ -557,22 +579,29 @@ impl PhotoEnhancer {
         ui.ctx()
             .data_mut(|data| data.insert_temp(egui::Id::new("photo_canvas_rect"), rect));
         let painter = ui.painter().with_clip_rect(rect);
-        painter.rect_filled(rect, 6.0, theme::BACKGROUND);
+        painter.rect_filled(rect, 6.0, colors.background);
         let Some(before) = &self.before else {
-            painter.text(
-                rect.center() - Vec2::new(0.0, 28.0),
-                egui::Align2::CENTER_CENTER,
-                "Start with a photo",
-                egui::FontId::proportional(28.0),
-                theme::TEXT,
-            );
-            painter.text(
-                rect.center() + Vec2::new(0.0, 15.0),
-                egui::Align2::CENTER_CENTER,
-                "Open a PNG or JPEG. Everything is processed locally.",
-                egui::FontId::proportional(14.0),
-                theme::MUTED,
-            );
+            for (key, size, offset, color) in [
+                ("Start with a photo", 28.0, -40.0, colors.text),
+                (
+                    "Open a PNG or JPEG. Everything is processed locally.",
+                    14.0,
+                    10.0,
+                    colors.muted,
+                ),
+            ] {
+                let text = painter.layout(
+                    tr(lang, key).to_owned(),
+                    egui::FontId::proportional(size),
+                    color,
+                    (rect.width() - 36.0).max(1.0),
+                );
+                let position = egui::pos2(
+                    rect.center().x - text.size().x / 2.0,
+                    rect.center().y + offset,
+                );
+                painter.galley(position, text, color);
+            }
             return;
         };
         let divider_x = rect.left() + rect.width() * self.split;
@@ -626,7 +655,7 @@ impl PhotoEnhancer {
                 painter.rect_filled(
                     square,
                     0.0,
-                    Color32::from_gray(if (x + y) % 2 == 0 { 40 } else { 49 }),
+                    Color32::from_gray(colors.checker[((x + y) % 2) as usize]),
                 );
             }
         }
@@ -655,7 +684,7 @@ impl PhotoEnhancer {
                 let x = rect.left() + rect.width() * self.split;
                 painter.line_segment(
                     [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                    (1.5, theme::ACCENT),
+                    (1.5, colors.accent),
                 );
             }
         }
@@ -663,51 +692,49 @@ impl PhotoEnhancer {
             let galley = painter.layout_no_wrap(
                 text.to_owned(),
                 egui::FontId::proportional(13.0),
-                theme::TEXT,
+                colors.text,
             );
             let anchor = align.anchor_size(position, galley.size() + egui::vec2(20.0, 12.0));
-            painter.rect_filled(anchor, 4.0, theme::SURFACE);
-            painter.galley(anchor.min + egui::vec2(10.0, 6.0), galley, theme::TEXT);
+            painter.rect_filled(anchor, 4.0, colors.surface);
+            painter.galley(anchor.min + egui::vec2(10.0, 6.0), galley, colors.text);
         };
         if self.compare != Compare::After || self.after.is_none() {
             tag(
                 rect.left_top() + Vec2::splat(14.0),
-                "BEFORE",
+                tr(lang, "BEFORE"),
                 egui::Align2::LEFT_TOP,
             );
         }
         if self.after.is_some() && self.compare != Compare::Before {
             tag(
                 rect.right_top() + Vec2::new(-14.0, 14.0),
-                "AFTER",
+                tr(lang, "AFTER"),
                 egui::Align2::RIGHT_TOP,
             );
         }
     }
     fn batch_ui(&mut self, ui: &mut egui::Ui) {
+        let lang = self.preferences.language;
+        let colors = self.preferences.theme.palette();
         let enabled = !self.busy && self.dialog.is_none() && !self.installing;
         ui.horizontal(|ui| {
             ui.toggle_value(
                 &mut self.batch_open,
-                format!(
-                    "Batch export · {} {}",
-                    self.queue.len(),
-                    if self.queue.len() == 1 {
-                        "photo"
-                    } else {
-                        "photos"
-                    }
+                i18n::format(
+                    lang,
+                    "Batch export · {count} photos",
+                    &[("count", self.queue.len().to_string())],
                 ),
             );
             if ui
-                .add_enabled(enabled, egui::Button::new("Add photos…"))
+                .add_enabled(enabled, egui::Button::new(tr(lang, "Add photos…")))
                 .clicked()
             {
                 self.dialog(Dialog::AddBatch, ui.ctx());
             }
             if !self.queue.is_empty()
                 && ui
-                    .add_enabled(enabled, egui::Button::new("Clear queue"))
+                    .add_enabled(enabled, egui::Button::new(tr(lang, "Clear queue")))
                     .clicked()
             {
                 self.queue.clear();
@@ -719,7 +746,10 @@ impl PhotoEnhancer {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(enabled, egui::Button::new("Choose output folder…"))
+                .add_enabled(
+                    enabled,
+                    egui::Button::new(tr(lang, "Choose output folder…")),
+                )
                 .clicked()
             {
                 self.dialog(Dialog::Folder, ui.ctx());
@@ -727,12 +757,12 @@ impl PhotoEnhancer {
             if ui
                 .add_enabled(
                     enabled && !self.queue.is_empty() && self.output_folder.is_some(),
-                    egui::Button::new("Export batch").fill(theme::ACCENT_DARK),
+                    egui::Button::new(tr(lang, "Export batch")).fill(colors.accent_fill),
                 )
                 .clicked()
             {
                 for item in &mut self.queue {
-                    item.state = "Waiting".into();
+                    item.state = Message::key("Waiting");
                 }
                 self.batch_running = true;
                 self.batch_index = 0;
@@ -742,8 +772,8 @@ impl PhotoEnhancer {
                 .output_folder
                 .as_ref()
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "Choose where to save the enhanced copies.".into());
-            ui.add(egui::Label::new(RichText::new(&destination).color(theme::MUTED)).truncate())
+                .unwrap_or_else(|| tr(lang, "Choose where to save the enhanced copies.").into());
+            ui.add(egui::Label::new(RichText::new(&destination).color(colors.muted)).truncate())
                 .on_hover_text(destination);
         });
         egui::ScrollArea::vertical()
@@ -759,68 +789,84 @@ impl PhotoEnhancer {
                             .truncate(),
                         )
                         .on_hover_text(item.path.display().to_string());
-                        ui.add(egui::Label::new(&item.state).truncate())
-                            .on_hover_text(&item.state);
+                        ui.add(egui::Label::new(item.state.render(lang)).truncate())
+                            .on_hover_text(item.state.render(lang));
                     });
                 }
             });
     }
     fn settings_window(&mut self, ctx: &egui::Context) {
+        let lang = self.preferences.language;
+        let colors = self.preferences.theme.palette();
         let mut open = self.settings_open;
-        egui::Window::new("Settings & updates").open(&mut open).default_width(510.0).default_height(580.0).min_width(350.0)
+        egui::Window::new(tr(lang, "Settings & updates")).id(egui::Id::new("Settings & updates")).open(&mut open).default_width(510.0).default_height(580.0).min_width(350.0)
             .default_pos(ctx.content_rect().center()-egui::vec2(265.0,300.0))
             .max_width((ctx.content_rect().width()-48.0).max(350.0))
             .max_height((ctx.content_rect().height()-64.0).max(240.0)).vscroll(true).show(ctx,|ui| {
                 ui.heading("PhotoEnhancer");
-                ui.label(RichText::new(format!("Version {} · Windows x64",env!("CARGO_PKG_VERSION"))).color(theme::MUTED));
-                ui.add_space(6.0);ui.separator();theme::section(ui,"Updates");
-                ui.checkbox(&mut self.preferences.startup_checks,"Check for updates on startup");
-                ui.label(RichText::new("Only GitHub is contacted. Your photos stay on this computer.").small().color(theme::MUTED));
-                if let Some(error)=&self.preferences_error {ui.colored_label(theme::WARNING,error);}
+                ui.label(RichText::new(i18n::format(lang,"Version {version} · Windows x64",&[("version",env!("CARGO_PKG_VERSION").into())])).color(colors.muted));
+                ui.add_space(6.0);ui.separator();theme::section(ui,tr(lang, "Appearance"));
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(tr(lang,"Language"));
+                    egui::ComboBox::from_id_salt("ui_language").selected_text(self.preferences.language.native_name()).show_ui(ui,|ui| {
+                        for language in Language::ALL { ui.selectable_value(&mut self.preferences.language,language,language.native_name()); }
+                    });
+                });
+                let previous_theme=self.preferences.theme;
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(tr(lang,"Theme"));
+                    ui.selectable_value(&mut self.preferences.theme,theme::Theme::Light,tr(lang,"Light"));
+                    ui.selectable_value(&mut self.preferences.theme,theme::Theme::Dark,tr(lang,"Dark"));
+                });
+                if previous_theme!=self.preferences.theme { theme::apply(ctx,self.preferences.theme); }
+                ui.add_space(6.0);ui.separator();theme::section(ui,tr(lang, "Updates"));
+                ui.checkbox(&mut self.preferences.startup_checks,tr(lang, "Check for updates on startup"));
+                ui.label(RichText::new(tr(lang, "Only GitHub is contacted. Your photos stay on this computer.")).small().color(colors.muted));
+                if let Some(error)=&self.preferences_error {ui.colored_label(colors.warning,format!("{}: {error}",tr(lang,"Settings could not be saved")));}
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!self.update_busy && !self.installed,egui::Button::new("Check for updates")).clicked() {self.check_updates();}
-                    if !self.update_failed {ui.add(egui::Label::new(RichText::new(&self.update_status).color(theme::MUTED)).truncate()).on_hover_text(&self.update_status);}
+                    if ui.add_enabled(!self.update_busy && !self.installed,egui::Button::new(tr(lang, "Check for updates"))).clicked() {self.check_updates();}
+                    if !self.update_failed {ui.add(egui::Label::new(RichText::new(self.update_status.render(lang)).color(colors.muted)).truncate()).on_hover_text(self.update_status.render(lang));}
                 });
                 if self.update_failed {
-                    ui.colored_label(theme::WARNING,if self.update_status.contains("404") {"No published release is available yet."} else {"Updates are unavailable. Please try again later."});
-                    ui.collapsing("Error details",|ui| {ui.add(egui::Label::new(&self.update_status).wrap());});
+                    ui.colored_label(colors.warning,if self.update_status.contains("404") {tr(lang, "No published release is available yet.")} else {tr(lang, "Updates are unavailable. Please try again later.")});
+                    ui.collapsing(tr(lang, "Error details"),|ui| {ui.add(egui::Label::new(self.update_status.render(lang)).wrap());});
                 }
                 if let Some(update)=self.available.clone() {
-                    ui.label(format!("Version {} is available",update.version));
-                    if ui.add_enabled(!self.update_busy && !self.busy && self.dialog.is_none() && !self.installed,egui::Button::new("Download and install").fill(theme::ACCENT_DARK)).clicked() {
+                    ui.label(i18n::format(lang,"Version {version} is available",&[("version",update.version.to_string())]));
+                    if ui.add_enabled(!self.update_busy && !self.busy && self.dialog.is_none() && !self.installed,egui::Button::new(tr(lang, "Download and install")).fill(colors.accent_fill)).clicked() {
                         self.download_update(update);
                     }
                 }
                 if self.installing {
                     ui.add(egui::ProgressBar::new(self.update_progress).show_percentage());
-                    if ui.button("Cancel download").clicked() {self.updater.cancel_download();}
+                    if ui.button(tr(lang, "Cancel download")).clicked() {self.updater.cancel_download();}
                 }
-                if self.installed && ui.add_enabled(!self.busy && self.dialog.is_none(), egui::Button::new("Install and restart")).clicked()
+                if self.installed && ui.add_enabled(!self.busy && self.dialog.is_none(), egui::Button::new(tr(lang, "Install and restart"))).clicked()
                     && let Some(prepared) = &mut self.prepared_update {
                     match updates::handoff(prepared) {
                         Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-                        Err(error) => {self.update_failed=true;self.update_status=error;}
+                        Err(error) => {self.update_failed=true;self.update_status=error.into();}
                     }
                 }
-                ui.add_space(6.0);ui.separator();theme::section(ui,"About photo enhancement");
-                ui.label("Local filters for light, color, noise and sharpness. Enlargement uses standard interpolation.");
-                if let Capability::Unavailable {..}=UnavailableBackend.capability() {ui.label(RichText::new("AI enhancement is not included in this version.").color(theme::MUTED));}
-                ui.collapsing("Supported images",|ui| {
-                    ui.label("8-bit RGB or grayscale PNG and JPEG, up to 24 megapixels. Output is limited to 32 megapixels and the memory budget.");
-                    ui.label("Embedded RGB and grayscale color profiles are converted to sRGB automatically. CMYK, HDR and high-bit-depth inputs need conversion first. PNG preserves transparency; export removes original metadata.");
+                ui.add_space(6.0);ui.separator();theme::section(ui,tr(lang, "About photo enhancement"));
+                ui.label(tr(lang, "Local filters for light, color, noise and sharpness. Enlargement uses standard interpolation."));
+                if let Capability::Unavailable {..}=UnavailableBackend.capability() {ui.label(RichText::new(tr(lang, "AI enhancement is not included in this version.")).color(colors.muted));}
+                ui.collapsing(tr(lang, "Supported images"),|ui| {
+                    ui.label(tr(lang, "8-bit RGB or grayscale PNG and JPEG, up to 24 megapixels. Output is limited to 32 megapixels and the memory budget."));
+                    ui.label(tr(lang, "Embedded RGB and grayscale color profiles are converted to sRGB automatically. CMYK, HDR and high-bit-depth inputs need conversion first. PNG preserves transparency; export removes original metadata."));
                 });
-                ui.hyperlink_to("Project on GitHub",updates::REPOSITORY);
+                ui.hyperlink_to(tr(lang, "Project on GitHub"),updates::REPOSITORY);
                 ui.add_space(6.0);ui.separator();
-                ui.collapsing("Rendering diagnostics",|ui| {
-                    ui.label("CPU rasterization / Windows GDI");
+                ui.collapsing(tr(lang, "Rendering diagnostics"),|ui| {
+                    ui.label(tr(lang, "CPU rasterization / Windows GDI"));
                     if let Some(metrics)=ctx.data(|data|data.get_temp::<host::FrameMetrics>(egui::Id::new("frame_metrics"))) && metrics.frames>0 {
-                        ui.label(format!("Last frame {:.1} ms · average {:.1} ms",metrics.last_ms,metrics.total_ms/metrics.frames as f64));
-                        ui.small(format!("Includes UI, rasterization and presentation. Maximum {:.1} ms includes startup.",metrics.max_ms));
-                        ui.small(format!("PID {} · CPU time {:.3} s · {} rendered frames",std::process::id(),metrics.process_cpu_seconds,metrics.frames));
-                        ui.small(if metrics.graphics_modules.is_empty() {"OpenGL / Direct3D modules: none loaded".into()} else {format!("Detected graphics modules: {}",metrics.graphics_modules.join(", "))});
+                        ui.label(i18n::format(lang,"Last frame {last} ms · average {average} ms",&[("last",format!("{:.1}",metrics.last_ms)),("average",format!("{:.1}",metrics.total_ms/metrics.frames as f64))]));
+                        ui.small(i18n::format(lang,"Includes UI, rasterization and presentation. Maximum {maximum} ms includes startup.",&[("maximum",format!("{:.1}",metrics.max_ms))]));
+                        ui.small(i18n::format(lang,"PID {pid} · CPU time {seconds} s · {frames} rendered frames",&[("pid",std::process::id().to_string()),("seconds",format!("{:.3}",metrics.process_cpu_seconds)),("frames",metrics.frames.to_string())]));
+                        ui.small(if metrics.graphics_modules.is_empty() {tr(lang, "OpenGL / Direct3D modules: none loaded").into()} else {i18n::format(lang,"Detected graphics modules: {modules}",&[("modules",metrics.graphics_modules.join(", "))])});
                     }
                 });
-                ui.collapsing("Licenses & notices",|ui| {
+                ui.collapsing(tr(lang, "Licenses & notices"),|ui| {
                     ui.label("PhotoEnhancer © 2026 contributors · MIT License");
                     static LINES:std::sync::OnceLock<Vec<&'static str>>=std::sync::OnceLock::new();
                     let lines=LINES.get_or_init(||include_str!("../docs/THIRD_PARTY_NOTICES.txt").lines().collect());
@@ -835,23 +881,25 @@ impl PhotoEnhancer {
 
 impl PhotoEnhancer {
     fn update(&mut self, ctx: &egui::Context) {
+        let lang = self.preferences.language;
+        let colors = self.preferences.theme.palette();
         self.receive(ctx);
         egui::TopBottomPanel::top("header")
             .frame(
                 egui::Frame::new()
-                    .fill(theme::SURFACE)
+                    .fill(colors.surface)
                     .inner_margin(egui::Margin::symmetric(20, 14)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading(RichText::new("PhotoEnhancer").color(theme::ACCENT));
+                    ui.heading(RichText::new("PhotoEnhancer").color(colors.accent));
                     ui.add_space(16.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .button(if self.available.is_some() {
-                                "Settings · update available"
+                                tr(lang, "Settings · update available")
                             } else {
-                                "Settings"
+                                tr(lang, "Settings")
                             })
                             .clicked()
                         {
@@ -860,7 +908,7 @@ impl PhotoEnhancer {
                         if ui
                             .add_enabled(
                                 !self.busy && !self.installing && self.dialog.is_none(),
-                                egui::Button::new("Open photo…"),
+                                egui::Button::new(tr(lang, "Open photo…")),
                             )
                             .clicked()
                         {
@@ -871,9 +919,9 @@ impl PhotoEnhancer {
                             .as_ref()
                             .and_then(|p| p.file_name())
                             .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "Local photo enhancement".into());
+                            .unwrap_or_else(|| tr(lang, "Local photo enhancement").into());
                         ui.add(
-                            egui::Label::new(RichText::new(description).color(theme::MUTED))
+                            egui::Label::new(RichText::new(description).color(colors.muted))
                                 .truncate(),
                         );
                     });
@@ -882,35 +930,35 @@ impl PhotoEnhancer {
         egui::TopBottomPanel::bottom("status")
             .frame(
                 egui::Frame::new()
-                    .fill(theme::SURFACE)
+                    .fill(colors.surface)
                     .inner_margin(egui::Margin::symmetric(20, 8)),
             )
             .show(ctx, |ui| {
                 ui.add(
-                    egui::Label::new(RichText::new(&self.message).small().color(
+                    egui::Label::new(RichText::new(self.message.render(lang)).small().color(
                         if self.message_error {
-                            theme::WARNING
+                            colors.warning
                         } else {
-                            theme::MUTED
+                            colors.muted
                         },
                     ))
                     .truncate(),
                 )
-                .on_hover_text(&self.message);
+                .on_hover_text(self.message.render(lang));
             });
         egui::TopBottomPanel::bottom("queue")
             .frame(
                 egui::Frame::new()
-                    .fill(theme::SURFACE)
+                    .fill(colors.surface)
                     .inner_margin(egui::Margin::symmetric(20, 8)),
             )
             .show(ctx, |ui| self.batch_ui(ui));
         egui::SidePanel::right("develop")
             .resizable(false)
-            .exact_width(340.0)
+            .exact_width(360.0)
             .frame(
                 egui::Frame::new()
-                    .fill(theme::SURFACE)
+                    .fill(colors.surface)
                     .inner_margin(egui::Margin::same(18)),
             )
             .show(ctx, |ui| self.controls(ui));
@@ -1178,7 +1226,7 @@ mod ui_tests {
         };
         let mut app = PhotoEnhancer::new(ctx.clone(), preferences);
         app.settings_open = true;
-        app.update_status="Cannot check GitHub releases: the upstream TLS connection failed; please try again later. ".repeat(15);
+        app.update_status="Cannot check GitHub releases: the upstream TLS connection failed; please try again later. ".repeat(15).into();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(920.0, 640.0));
         for _ in 0..4 {
             let input = egui::RawInput {

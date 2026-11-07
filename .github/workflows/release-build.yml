@@ -1,0 +1,37 @@
+name: Checked release builds
+'on':
+  workflow_call: {}
+permissions:
+  contents: read
+env:
+  CARGO_BUILD_JOBS: '2'
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TARGET_DIR: target
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - name: Provision shared updater source
+      shell: pwsh
+      run: ./scripts/provision-shared-updater.ps1
+    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      with:
+        components: rustfmt, clippy
+        toolchain: stable
+    - name: Format, test generated fixtures, and lint
+      shell: pwsh
+      run: ./scripts/check.ps1
+    - name: Build portable package without launching it
+      shell: pwsh
+      run: ./scripts/package.ps1
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: PhotoEnhancer-portable
+        path: dist/*
+    permissions:
+      contents: read
+    timeout-minutes: 30

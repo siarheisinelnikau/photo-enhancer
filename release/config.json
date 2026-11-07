@@ -1,0 +1,12 @@
+{
+  "repository": "siarheisinelnikau/photo-enhancer",
+  "product": "PhotoEnhancer",
+  "kind": "desktop",
+  "assets": [
+    {
+      "name": "PhotoEnhancer-v{version}.exe"
+    }
+  ],
+  "notices": true,
+  "checksum_aliases": []
+}
